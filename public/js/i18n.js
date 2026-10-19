@@ -370,6 +370,12 @@ const S = {
   'photo.err.notFood': ['没认出食物。换个角度再拍一张，或者用搜索添加。', 'No food recognised. Try another angle, or use search.'],
   'photo.err.daily_limit': ['今天的拍照识别次数用完了，明天再来，或者先用搜索添加。', 'You’ve used today’s photo recognitions. Come back tomorrow or use search.'],
   'photo.err.ai_failed': ['识别服务暂时不可用，可以先用搜索添加。', 'Recognition is unavailable right now. Use search for now.'],
+  'photo.err.ai_auth': ['识别服务的 API key 无效、过期或已删除。请检查 .env 里的 ANTHROPIC_API_KEY，改完重启服务。', 'The recognition API key is invalid, expired or deleted. Check ANTHROPIC_API_KEY in .env and restart the server.'],
+  'photo.err.ai_workspace': ['这个 API key 没有绑定工作区，请求时需要写明工作区。在 .env 里加一行 ANTHROPIC_WORKSPACE_ID=（Claude Console → Workspaces 页面里的 ID），或者重新建一个只属于 Default 工作区的 key，然后重启服务。', 'This API key isn’t tied to one workspace, so requests must name one. Add ANTHROPIC_WORKSPACE_ID= to .env (the ID on the Workspaces page in the Claude Console), or create a key scoped to the Default workspace, then restart the server.'],
+  'photo.err.ai_billing': ['识别服务的账户余额不足，充值后再试。现在可以先用搜索添加。', 'The recognition account is out of credit. Top up, or use search for now.'],
+  'photo.err.ai_model': ['识别用的模型名不对或者用不了，检查 ANTHROPIC_VISION_MODEL。', 'The recognition model name is wrong or unavailable. Check ANTHROPIC_VISION_MODEL.'],
+  'photo.err.ai_busy': ['识别服务现在太忙，过一会儿再试，或者先用搜索添加。', 'Recognition is busy right now. Try again shortly, or use search.'],
+  'photo.err.ai_timeout': ['识别太久没有回应，再试一次，或者先用搜索添加。', 'Recognition took too long. Try again, or use search.'],
   'photo.err.offline': ['连不上服务器，检查一下网络再试。', 'Can’t reach the server. Check your connection and try again.'],
   'photo.err.generic': ['识别没有成功，可以重试，或者用搜索添加。', 'Recognition didn’t work. Try again or use search.'],
 

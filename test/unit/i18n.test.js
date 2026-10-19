@@ -48,6 +48,7 @@ test('dynamic key families are complete', () => {
     'cam.getReady.': ['squat', 'pushup'],
     'cam.cue.': ['deeper', 'hipsSag', 'hipsHigh', 'deeper.squat', 'deeper.pushup'],
     'cam.err.': ['unsupported', 'denied', 'noCamera', 'camera', 'model'],
+    'photo.err.': ['ai_auth', 'ai_workspace', 'ai_billing', 'ai_model', 'ai_busy', 'ai_timeout', 'ai_failed', 'daily_limit', 'notFood', 'image', 'offline', 'generic'],
   };
   const missing = [];
   for (const [prefix, keys] of Object.entries(families)) for (const k of keys) if (!hasKey(prefix + k)) missing.push(prefix + k);

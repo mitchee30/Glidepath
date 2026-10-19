@@ -305,7 +305,7 @@ export function createApi(db, opts) {
       res.json({ ...result, demo: false });
     } catch (e) {
       opts.log?.(`[recognize] ${e.message}`);
-      throw new HttpError(502, 'ai_failed');
+      throw new HttpError(502, e.code && String(e.code).startsWith('ai_') ? e.code : 'ai_failed');
     }
   }));
 

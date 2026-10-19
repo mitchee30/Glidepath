@@ -77,6 +77,7 @@ Then sign up for your own account; demo accounts always get sample results unles
 | `ANTHROPIC_API_KEY` | empty | Claude key; used first when set |
 | `ANTHROPIC_VISION_MODEL` | `claude-haiku-5-5` | e.g. `claude-sonnet-5-5` for harder photos (slower, about 20× the price) |
 | `ANTHROPIC_EFFORT` | model default | `low` is faster and cheaper, `high` thinks more about portions |
+| `ANTHROPIC_WORKSPACE_ID` | empty | Needed only for a personal or service-account key that isn't tied to one workspace (`wrkspc_...`) |
 | `OPENAI_API_KEY` | empty | OpenAI key, used when there is no Claude key |
 | `OPENAI_VISION_MODEL` | `gpt-4.1-mini` | Change this if the model is retired or you want another |
 | `OPENAI_IMAGE_DETAIL` | `auto` | `low` is cheaper, `high` reads portions more closely |
@@ -94,7 +95,7 @@ Set a monthly spending limit in your Claude Console or OpenAI account. Photos ar
 ### Tests
 
 ```bash
-npm test                          # 88 unit + API tests (math, safety rules, progression, rep counting, account isolation, the vision-model call…)
+npm test                          # 89 unit + API tests (math, safety rules, progression, rep counting, account isolation, the vision-model call…)
 npx playwright install chromium   # once, before the first browser test run
 npm run e2e                       # 15 end-to-end browser tests at phone size (signup, photo, search, weight, training, camera counting, language, screening, dark mode…)
 SHOTS=shots npm run e2e           # also save a screenshot of each step to shots/
@@ -234,6 +235,7 @@ npm start
 | `ANTHROPIC_API_KEY` | 空 | Claude 的 key；设置了就优先用 |
 | `ANTHROPIC_VISION_MODEL` | `claude-haiku-5-5` | 比如换成 `claude-sonnet-5-5` 识别更难的照片（更慢，价格约 20 倍） |
 | `ANTHROPIC_EFFORT` | 模型默认 | `low` 更快更便宜，`high` 估分量时想得更多 |
+| `ANTHROPIC_WORKSPACE_ID` | 空 | 只有没绑定工作区的个人 key 或服务账号 key 才需要（`wrkspc_...`） |
 | `OPENAI_API_KEY` | 空 | OpenAI 的 key，没有 Claude key 时才用 |
 | `OPENAI_VISION_MODEL` | `gpt-4.1-mini` | 模型下线或想换时改这里 |
 | `OPENAI_IMAGE_DETAIL` | `auto` | `low` 更便宜，`high` 看分量更细 |
@@ -251,7 +253,7 @@ npm start
 ### 测试
 
 ```bash
-npm test                          # 88 个单元 + 接口测试（计算、安全规则、训练进阶、动作计数、账号隔离、拍照识别的模型调用等）
+npm test                          # 89 个单元 + 接口测试（计算、安全规则、训练进阶、动作计数、账号隔离、拍照识别的模型调用等）
 npx playwright install chromium   # 第一次跑端到端测试前装一次
 npm run e2e                       # 15 个浏览器端到端测试，手机尺寸（注册建档、拍照、搜索、体重、训练、摄像头计数、切换语言、筛查、深色模式…）
 SHOTS=shots npm run e2e           # 顺便把每一步截图存到 shots/

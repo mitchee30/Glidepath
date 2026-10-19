@@ -21,7 +21,9 @@ const LOCAL_MODEL_PATH = '/vendor/pose_landmarker.task';
  */
 function pickAi(o) {
   const want = o.aiProvider || (o.anthropicKey ? 'anthropic' : o.openaiKey ? 'openai' : null);
-  if (want === 'anthropic' && o.anthropicKey) return { provider: 'anthropic', key: o.anthropicKey, model: o.anthropicModel, effort: o.anthropicEffort };
+  if (want === 'anthropic' && o.anthropicKey) {
+    return { provider: 'anthropic', key: o.anthropicKey, model: o.anthropicModel, effort: o.anthropicEffort, workspaceId: o.anthropicWorkspaceId };
+  }
   if (want === 'openai' && o.openaiKey) return { provider: 'openai', key: o.openaiKey, model: o.visionModel, detail: o.imageDetail };
   return null;
 }
@@ -53,6 +55,7 @@ export function createApp(options = {}) {
     anthropicKey: options.anthropicKey !== undefined ? options.anthropicKey : env.ANTHROPIC_API_KEY || null,
     anthropicModel: options.anthropicModel ?? env.ANTHROPIC_VISION_MODEL ?? 'claude-haiku-5-5',
     anthropicEffort: options.anthropicEffort ?? env.ANTHROPIC_EFFORT ?? null,
+    anthropicWorkspaceId: options.anthropicWorkspaceId ?? env.ANTHROPIC_WORKSPACE_ID ?? null,
     openaiKey: options.openaiKey !== undefined ? options.openaiKey : env.OPENAI_API_KEY || null,
     visionModel: options.visionModel ?? env.OPENAI_VISION_MODEL ?? 'gpt-4.1-mini',
     imageDetail: options.imageDetail ?? env.OPENAI_IMAGE_DETAIL ?? 'auto',

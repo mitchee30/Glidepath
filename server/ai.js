@@ -119,11 +119,31 @@ export async function recognizeWithOpenAI({ image, lang, apiKey, model, detail, 
 
 const ANTHROPIC_VERSION = '2023-06-01';
 
+/** An error the user can act on; `code` becomes the API error code (photo.err.<code> in the UI). */
+export class AiError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/** Maps a Claude API error response to one of our codes. */
+export function anthropicErrorCode(status, body) {
+  const type = body?.error?.type || '';
+  const msg = String(body?.error?.message || '').toLowerCase();
+  if (status === 401 || status === 403 || type === 'authentication_error' || type === 'permission_error') return 'ai_auth';
+  if (msg.includes('anthropic-workspace-id') || (status === 404 && msg.includes('workspace'))) return 'ai_workspace';
+  if (msg.includes('credit balance') || type === 'billing_error') return 'ai_billing';
+  if (status === 404 || msg.includes('model')) return 'ai_model';
+  if (status === 429 || status === 529 || status >= 500 || type === 'overloaded_error' || type === 'rate_limit_error') return 'ai_busy';
+  return 'ai_failed';
+}
+
 /**
  * Claude Messages API with structured output (output_config.format = json_schema).
  * The image is sent as a base64 block before the question, as the vision guide recommends.
  */
-export async function recognizeWithAnthropic({ image, lang, apiKey, model, effort, fetchImpl = fetch, timeoutMs = 45000 }) {
+export async function recognizeWithAnthropic({ image, lang, apiKey, model, effort, workspaceId, fetchImpl = fetch, timeoutMs = 45000 }) {
   const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(image);
   if (!m) throw new Error('bad image data URL');
   const ctrl = new AbortController();
@@ -131,10 +151,13 @@ export async function recognizeWithAnthropic({ image, lang, apiKey, model, effor
   try {
     const outputConfig = { format: { type: 'json_schema', schema: SCHEMA } };
     if (effort) outputConfig.effort = effort;
+    const headers = { 'content-type': 'application/json', authorization: `Bearer ${apiKey}`, 'anthropic-version': ANTHROPIC_VERSION };
+    // personal / service-account keys that aren't tied to one workspace must name it on every request
+    if (workspaceId) headers['anthropic-workspace-id'] = workspaceId;
     const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       signal: ctrl.signal,
-      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VERSION },
+      headers,
       body: JSON.stringify({
         model,
         max_tokens: 4096,
@@ -150,15 +173,20 @@ export async function recognizeWithAnthropic({ image, lang, apiKey, model, effor
       }),
     });
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`anthropic ${res.status}: ${body.slice(0, 200)}`);
+      const text = await res.text().catch(() => '');
+      let body = null;
+      try { body = JSON.parse(text); } catch { /* not JSON */ }
+      throw new AiError(anthropicErrorCode(res.status, body), `anthropic ${res.status}: ${text.slice(0, 300)}`);
     }
     const data = await res.json();
     if (data?.stop_reason === 'refusal') return { isFood: false, items: [], note: '' };
-    if (data?.stop_reason === 'max_tokens') throw new Error('anthropic: hit max_tokens');
+    if (data?.stop_reason === 'max_tokens') throw new AiError('ai_failed', 'anthropic: hit max_tokens');
     const text = (data?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
     if (!text) return { isFood: false, items: [], note: '' };
     return normalizeRecognition(JSON.parse(text));
+  } catch (e) {
+    if (e.name === 'AbortError') throw new AiError('ai_timeout', 'anthropic: timed out');
+    throw e;
   } finally {
     clearTimeout(timer);
   }
@@ -167,7 +195,7 @@ export async function recognizeWithAnthropic({ image, lang, apiKey, model, effor
 /** ai: { provider: 'anthropic' | 'openai', key, model, effort?, detail? } */
 export function recognize(ai, { image, lang, fetchImpl }) {
   if (ai.provider === 'anthropic') {
-    return recognizeWithAnthropic({ image, lang, apiKey: ai.key, model: ai.model, effort: ai.effort, fetchImpl });
+    return recognizeWithAnthropic({ image, lang, apiKey: ai.key, model: ai.model, effort: ai.effort, workspaceId: ai.workspaceId, fetchImpl });
   }
   return recognizeWithOpenAI({ image, lang, apiKey: ai.key, model: ai.model, detail: ai.detail, fetchImpl });
 }

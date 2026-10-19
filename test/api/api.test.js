@@ -454,7 +454,8 @@ test('recognize with Claude: image block, structured output, normalised answer',
 
   const call = calls[0];
   assert.equal(call.url, 'https://api.anthropic.com/v1/messages');
-  assert.equal(call.headers['x-api-key'], 'sk-ant-test');
+  assert.equal(call.headers.authorization, 'Bearer sk-ant-test');
+  assert.equal(call.headers['anthropic-workspace-id'], undefined);
   assert.equal(call.headers['anthropic-version'], '2023-06-01');
   assert.equal(call.body.model, 'claude-haiku-5-5');
   assert.equal(call.body.output_config.format.type, 'json_schema');
@@ -467,8 +468,40 @@ test('recognize with Claude: image block, structured output, normalised answer',
 
   reply = () => new Response(JSON.stringify({ stop_reason: 'refusal', content: [] }), { status: 200 });
   assert.equal((await (await fetch(url + '/food/recognize', { method: 'POST', headers: H, body: JSON.stringify({ image: IMG }) })).json()).isFood, false);
-  reply = () => new Response('{"type":"error"}', { status: 529 });
-  assert.equal((await fetch(url + '/food/recognize', { method: 'POST', headers: H, body: JSON.stringify({ image: IMG }) })).status, 502);
+  // errors come back with a code the page can explain
+  const errorFor = async (status, error) => {
+    reply = () => new Response(JSON.stringify({ type: 'error', error }), { status });
+    const res = await fetch(url + '/food/recognize', { method: 'POST', headers: H, body: JSON.stringify({ image: IMG }) });
+    assert.equal(res.status, 502);
+    return (await res.json()).error;
+  };
+  assert.equal(await errorFor(529, { type: 'overloaded_error', message: 'Overloaded' }), 'ai_busy');
+  assert.equal(await errorFor(401, { type: 'authentication_error', message: 'invalid x-api-key' }), 'ai_auth');
+  assert.equal(await errorFor(400, { type: 'invalid_request_error',
+    message: 'anthropic-workspace-id is required when authenticating with an identity-linked API key; send the id of the workspace this request acts in.' }), 'ai_workspace');
+  assert.equal(await errorFor(400, { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API.' }), 'ai_billing');
+  assert.equal(await errorFor(404, { type: 'not_found_error', message: 'model: claude-nope' }), 'ai_model');
+  srv.close();
+  claude.close();
+});
+
+test('recognize with Claude: ANTHROPIC_WORKSPACE_ID is sent as anthropic-workspace-id', async () => {
+  const calls = [];
+  const claude = createApp({
+    dbPath: ':memory:', anthropicKey: 'sk-ant-usr-test', anthropicWorkspaceId: 'wrkspc_test123', openaiKey: null, log: () => {},
+    fetchImpl: async (u, init) => {
+      calls.push(init.headers);
+      return new Response(JSON.stringify({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"is_food":false,"note":"","items":[]}' }] }), { status: 200 });
+    },
+  });
+  const srv = claude.app.listen(0);
+  const url = `http://127.0.0.1:${srv.address().port}/api`;
+  const h = { 'content-type': 'application/json', 'x-glidepath': '1' };
+  const reg = await fetch(url + '/auth/register', { method: 'POST', headers: h, body: JSON.stringify({ email: 'ws@example.com', password: 'longenough1' }) });
+  const H = { ...h, cookie: reg.headers.get('set-cookie').split(';')[0] };
+  const r = await (await fetch(url + '/food/recognize', { method: 'POST', headers: H, body: JSON.stringify({ image: IMG }) })).json();
+  assert.equal(r.isFood, false);
+  assert.equal(calls[0]['anthropic-workspace-id'], 'wrkspc_test123');
   srv.close();
   claude.close();
 });
