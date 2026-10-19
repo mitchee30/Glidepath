@@ -11,7 +11,7 @@ let fakeOpenAI = null;
 
 before(async () => {
   appCtx = createApp({
-    dbPath: ':memory:', openaiKey: 'sk-test', authLimit: 1000, demoLimit: 1000, recognizeDailyLimit: 3, log: () => {},
+    dbPath: ':memory:', anthropicKey: null, openaiKey: 'sk-test', authLimit: 1000, demoLimit: 1000, recognizeDailyLimit: 3, log: () => {},
     fetchImpl: async (url, init) => {
       fetchCalls.push({ url, body: JSON.parse(init.body) });
       return fakeOpenAI(url, init);
@@ -265,7 +265,7 @@ test('recognize: demo accounts get sample results without calling the model', as
 });
 
 test('recognize: no API key means demo results for everyone', async () => {
-  const other = createApp({ dbPath: ':memory:', openaiKey: null, log: () => {} });
+  const other = createApp({ dbPath: ':memory:', anthropicKey: null, openaiKey: null, log: () => {} });
   const srv = other.app.listen(0);
   const url = `http://127.0.0.1:${srv.address().port}/api`;
   const h = { 'content-type': 'application/json', 'x-glidepath': '1' };
@@ -411,7 +411,7 @@ test('pose detection: POSE_MODEL_FILE is served locally and the CSP stays same-o
   const path = await import('node:path');
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gp-')), 'model.task');
   fs.writeFileSync(file, 'not really a model');
-  const local = createApp({ dbPath: ':memory:', openaiKey: null, poseModelFile: file, log: () => {} });
+  const local = createApp({ dbPath: ':memory:', anthropicKey: null, openaiKey: null, poseModelFile: file, log: () => {} });
   const srv = local.app.listen(0);
   const url = `http://127.0.0.1:${srv.address().port}`;
   const res = await fetch(url + '/vendor/pose_landmarker.task');
@@ -419,4 +419,56 @@ test('pose detection: POSE_MODEL_FILE is served locally and the CSP stays same-o
   assert.match(res.headers.get('content-security-policy'), /connect-src 'self';/);
   srv.close();
   local.close();
+});
+
+// ------------------------------------------------------------ Claude vision
+
+test('recognize with Claude: image block, structured output, normalised answer', async () => {
+  const calls = [];
+  let reply;
+  const claude = createApp({
+    dbPath: ':memory:', anthropicKey: 'sk-ant-test', openaiKey: 'sk-also-set', authLimit: 1000, log: () => {},
+    fetchImpl: async (url, init) => { calls.push({ url, headers: init.headers, body: JSON.parse(init.body) }); return reply(); },
+  });
+  const srv = claude.app.listen(0);
+  const url = `http://127.0.0.1:${srv.address().port}/api`;
+  const h = { 'content-type': 'application/json', 'x-glidepath': '1' };
+  const reg = await fetch(url + '/auth/register', { method: 'POST', headers: h, body: JSON.stringify({ email: 'claude@example.com', password: 'longenough1' }) });
+  const H = { ...h, cookie: reg.headers.get('set-cookie').split(';')[0] };
+  const me = await (await fetch(url + '/me', { headers: H })).json();
+  assert.deepEqual(me.ai, { enabled: true, provider: 'anthropic', demo: false });
+
+  reply = () => new Response(JSON.stringify({
+    stop_reason: 'end_turn',
+    content: [{ type: 'text', text: JSON.stringify({
+      is_food: true, note: '面衣吸油，热量可能更高',
+      items: [{ name_zh: '炸鸡', name_en: 'Fried chicken', food_id: 'fried_chicken', grams: 240, cooking: 'plain',
+        kcal_per_100g: 1, protein_per_100g: 1, carbs_per_100g: 1, fat_per_100g: 1, confidence: 0.85 }],
+    }) }],
+  }), { status: 200 });
+  const r = await (await fetch(url + '/food/recognize', { method: 'POST', headers: H, body: JSON.stringify({ image: IMG, lang: 'zh' }) })).json();
+  assert.equal(r.demo, false);
+  assert.equal(r.items[0].foodId, 'fried_chicken');
+  assert.equal(r.items[0].per100.k, 275); // our table, not the model's number
+  assert.equal(r.note, '面衣吸油，热量可能更高');
+
+  const call = calls[0];
+  assert.equal(call.url, 'https://api.anthropic.com/v1/messages');
+  assert.equal(call.headers['x-api-key'], 'sk-ant-test');
+  assert.equal(call.headers['anthropic-version'], '2023-06-01');
+  assert.equal(call.body.model, 'claude-haiku-5-5');
+  assert.equal(call.body.output_config.format.type, 'json_schema');
+  assert.equal(call.body.output_config.format.schema.additionalProperties, false);
+  assert.equal(call.body.output_config.effort, undefined);
+  const [img, txt] = call.body.messages[0].content;
+  assert.deepEqual(img, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: IMG.split(',')[1] } });
+  assert.equal(txt.type, 'text');
+  assert.match(call.body.system, /fried_chicken: 炸鸡/);
+
+  reply = () => new Response(JSON.stringify({ stop_reason: 'refusal', content: [] }), { status: 200 });
+  assert.equal((await (await fetch(url + '/food/recognize', { method: 'POST', headers: H, body: JSON.stringify({ image: IMG }) })).json()).isFood, false);
+  reply = () => new Response('{"type":"error"}', { status: 529 });
+  assert.equal((await fetch(url + '/food/recognize', { method: 'POST', headers: H, body: JSON.stringify({ image: IMG }) })).status, 502);
+  srv.close();
+  claude.close();
 });

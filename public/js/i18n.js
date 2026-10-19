@@ -351,7 +351,7 @@ const S = {
   'photo.choose': ['从相册选', 'Choose from library'],
   'photo.tip': ['把整份食物拍进去，从斜上方拍；旁边有筷子、勺子或手，分量估得更准。照片只用来识别，不会保存。', 'Fit the whole meal in, shot from above at an angle. Chopsticks, a spoon or your hand in frame help with portion size. Photos are only used for recognition and never stored.'],
   'photo.demoTitle': ['这不是你照片的识别结果', 'This is not a reading of your photo'],
-  'photo.demoWhyKey': ['现在是演示模式：服务器没有设置 OPENAI_API_KEY，所以不会真的识别照片，下面是固定的示例结果，只用来体验流程。', 'Demo mode: the server has no OPENAI_API_KEY, so photos aren’t really recognised. Below is a fixed sample so you can try the flow.'],
+  'photo.demoWhyKey': ['现在是演示模式：服务器没有设置识别用的 API key（ANTHROPIC_API_KEY 或 OPENAI_API_KEY），所以不会真的识别照片，下面是固定的示例结果，只用来体验流程。', 'Demo mode: the server has no API key (ANTHROPIC_API_KEY or OPENAI_API_KEY), so photos aren’t really recognised. Below is a fixed sample so you can try the flow.'],
   'photo.demoWhyAccount': ['演示账号不调用真实识别，下面是固定的示例结果。注册自己的账号就能真正识别照片。', 'Demo accounts don’t use real recognition. Below is a fixed sample. Create your own account to have photos recognised.'],
   'photo.reading': ['正在识别…', 'Looking at your meal…'],
   'photo.demoTag': ['演示结果', 'Demo result'],

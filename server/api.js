@@ -6,7 +6,7 @@ import {
 import * as store from './store.js';
 import { HttpError } from './store.js';
 import { createDemoUser } from './demo.js';
-import { recognizeWithOpenAI, demoRecognition } from './ai.js';
+import { recognize, demoRecognition } from './ai.js';
 import { evaluateGoal, screen, validateProfile, buildTargets, maintenanceTargets, projectEnd } from '../public/js/core/plan.js';
 import { movingAverage, trendWeight, weeklyChange, isPlateau, safetySignals } from '../public/js/core/trend.js';
 import { weeklyAverage, MEALS } from '../public/js/core/nutrition.js';
@@ -140,7 +140,7 @@ export function createApi(db, opts) {
       user: publicUser(req.user),
       profile: store.getProfile(db, req.user.id),
       plan: store.getPlan(db, req.user.id),
-      ai: { enabled: !!opts.openaiKey, demo: !opts.openaiKey || (!!req.user.is_demo && !opts.demoUsesAi) },
+      ai: { enabled: !!opts.ai, provider: opts.ai?.provider ?? null, demo: !opts.ai || (!!req.user.is_demo && !opts.demoUsesAi) },
       config: { poseModelUrl: opts.poseModelUrl },
     });
   }));
@@ -292,7 +292,7 @@ export function createApi(db, opts) {
     if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image) || image.length > 7_000_000) {
       throw new HttpError(400, 'bad_image');
     }
-    const useAi = !!opts.openaiKey && (!req.user.is_demo || opts.demoUsesAi);
+    const useAi = !!opts.ai && (!req.user.is_demo || opts.demoUsesAi);
     if (!useAi) return res.json(demoRecognition(image, lang));
 
     const day = serverToday();
@@ -301,9 +301,7 @@ export function createApi(db, opts) {
     db.prepare(`INSERT INTO ai_usage (user_id, day, count) VALUES (?, ?, 1)
                 ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1`).run(req.user.id, day);
     try {
-      const result = await recognizeWithOpenAI({
-        image, lang, apiKey: opts.openaiKey, model: opts.visionModel, detail: opts.imageDetail, fetchImpl: opts.fetchImpl,
-      });
+      const result = await recognize(opts.ai, { image, lang, fetchImpl: opts.fetchImpl });
       res.json({ ...result, demo: false });
     } catch (e) {
       opts.log?.(`[recognize] ${e.message}`);

@@ -15,7 +15,7 @@ const SHOTS = process.env.SHOTS || null;
 const MEAL = path.join(HERE, 'meal.jpg');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'glidepath-e2e-'));
-const { app, close } = createApp({ dbPath: path.join(tmp, 'e2e.db'), openaiKey: null, authLimit: 1000, demoLimit: 1000, log: () => {} });
+const { app, close } = createApp({ dbPath: path.join(tmp, 'e2e.db'), anthropicKey: null, openaiKey: null, authLimit: 1000, demoLimit: 1000, log: () => {} });
 const server = app.listen(0);
 const BASE = `http://127.0.0.1:${server.address().port}`;
 
@@ -380,7 +380,7 @@ if (!modelFile) {
     const video = path.join(tmp, 'squats.mjpeg');
     fs.writeFileSync(video, Buffer.concat(frames));
 
-    const cam = createApp({ dbPath: path.join(tmp, 'cam.db'), openaiKey: null, demoLimit: 1000, poseModelFile: modelFile, log: () => {} });
+    const cam = createApp({ dbPath: path.join(tmp, 'cam.db'), anthropicKey: null, openaiKey: null, demoLimit: 1000, poseModelFile: modelFile, log: () => {} });
     const camServer = cam.app.listen(0);
     const CAM = `http://127.0.0.1:${camServer.address().port}`;
     const camBrowser = await chromium.launch({

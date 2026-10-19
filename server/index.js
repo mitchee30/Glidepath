@@ -15,6 +15,17 @@ export const DEFAULT_POSE_MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 const LOCAL_MODEL_PATH = '/vendor/pose_landmarker.task';
 
+/**
+ * Which vision model recognises food photos. Claude is preferred when both keys are set;
+ * AI_PROVIDER=anthropic|openai forces one. Returns null for demo mode.
+ */
+function pickAi(o) {
+  const want = o.aiProvider || (o.anthropicKey ? 'anthropic' : o.openaiKey ? 'openai' : null);
+  if (want === 'anthropic' && o.anthropicKey) return { provider: 'anthropic', key: o.anthropicKey, model: o.anthropicModel, effort: o.anthropicEffort };
+  if (want === 'openai' && o.openaiKey) return { provider: 'openai', key: o.openaiKey, model: o.visionModel, detail: o.imageDetail };
+  return null;
+}
+
 function buildCsp(poseModelUrl) {
   const connect = ["'self'"];
   if (/^https:\/\//.test(poseModelUrl)) connect.push(new URL(poseModelUrl).origin);
@@ -39,9 +50,13 @@ export function createApp(options = {}) {
   const env = process.env;
   const opts = {
     dbPath: options.dbPath ?? env.DB_PATH ?? path.join(ROOT, 'data', 'glidepath.db'),
+    anthropicKey: options.anthropicKey !== undefined ? options.anthropicKey : env.ANTHROPIC_API_KEY || null,
+    anthropicModel: options.anthropicModel ?? env.ANTHROPIC_VISION_MODEL ?? 'claude-haiku-5-5',
+    anthropicEffort: options.anthropicEffort ?? env.ANTHROPIC_EFFORT ?? null,
     openaiKey: options.openaiKey !== undefined ? options.openaiKey : env.OPENAI_API_KEY || null,
     visionModel: options.visionModel ?? env.OPENAI_VISION_MODEL ?? 'gpt-4.1-mini',
     imageDetail: options.imageDetail ?? env.OPENAI_IMAGE_DETAIL ?? 'auto',
+    aiProvider: options.aiProvider ?? env.AI_PROVIDER ?? null,
     recognizeDailyLimit: options.recognizeDailyLimit ?? Number(env.RECOGNIZE_DAILY_LIMIT || 30),
     demoUsesAi: options.demoUsesAi ?? env.DEMO_USES_AI === '1',
     trustProxy: options.trustProxy ?? env.TRUST_PROXY === '1',
@@ -53,6 +68,7 @@ export function createApp(options = {}) {
     log: options.log ?? ((m) => console.error(m)),
   };
   if (opts.poseModelFile) opts.poseModelUrl = LOCAL_MODEL_PATH;
+  opts.ai = pickAi(opts);
   const CSP = buildCsp(opts.poseModelUrl);
 
   const db = openDb(opts.dbPath);
@@ -105,6 +121,9 @@ if (isMain) {
   const port = Number(process.env.PORT || 3000);
   app.listen(port, () => {
     console.log(`Glidepath running on http://localhost:${port}`);
-    console.log(opts.openaiKey ? `Photo recognition: OpenAI (${opts.visionModel})` : 'Photo recognition: demo mode (no OPENAI_API_KEY)');
+    const ai = opts.ai;
+    console.log(ai
+      ? `Photo recognition: ${ai.provider === 'anthropic' ? 'Claude' : 'OpenAI'} (${ai.model})`
+      : 'Photo recognition: demo mode (set ANTHROPIC_API_KEY or OPENAI_API_KEY to recognise real photos)');
   });
 }

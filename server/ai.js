@@ -1,5 +1,7 @@
-// Food photo recognition. With OPENAI_API_KEY set it asks a vision model;
-// without a key it returns sample results so the whole flow can be tried.
+// Food photo recognition. With ANTHROPIC_API_KEY (Claude) or OPENAI_API_KEY set
+// it asks a vision model; without a key it returns sample results so the whole
+// flow can be tried. Both providers get the same prompt and the same JSON schema,
+// and their answers go through the same normalisation.
 
 import { FOODS, getFood } from '../public/js/core/foods.js';
 import { COOKING } from '../public/js/core/nutrition.js';
@@ -113,6 +115,61 @@ export async function recognizeWithOpenAI({ image, lang, apiKey, model, detail, 
   } finally {
     clearTimeout(timer);
   }
+}
+
+const ANTHROPIC_VERSION = '2023-06-01';
+
+/**
+ * Claude Messages API with structured output (output_config.format = json_schema).
+ * The image is sent as a base64 block before the question, as the vision guide recommends.
+ */
+export async function recognizeWithAnthropic({ image, lang, apiKey, model, effort, fetchImpl = fetch, timeoutMs = 45000 }) {
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(image);
+  if (!m) throw new Error('bad image data URL');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const outputConfig = { format: { type: 'json_schema', schema: SCHEMA } };
+    if (effort) outputConfig.effort = effort;
+    const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VERSION },
+      body: JSON.stringify({
+        model,
+        max_tokens: 4096,
+        system: systemPrompt(lang),
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
+            { type: 'text', text: 'What is in this meal, and how much?' },
+          ],
+        }],
+        output_config: outputConfig,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`anthropic ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    if (data?.stop_reason === 'refusal') return { isFood: false, items: [], note: '' };
+    if (data?.stop_reason === 'max_tokens') throw new Error('anthropic: hit max_tokens');
+    const text = (data?.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+    if (!text) return { isFood: false, items: [], note: '' };
+    return normalizeRecognition(JSON.parse(text));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** ai: { provider: 'anthropic' | 'openai', key, model, effort?, detail? } */
+export function recognize(ai, { image, lang, fetchImpl }) {
+  if (ai.provider === 'anthropic') {
+    return recognizeWithAnthropic({ image, lang, apiKey: ai.key, model: ai.model, effort: ai.effort, fetchImpl });
+  }
+  return recognizeWithOpenAI({ image, lang, apiKey: ai.key, model: ai.model, detail: ai.detail, fetchImpl });
 }
 
 // --------------------------------------------------------------- demo mode

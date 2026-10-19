@@ -53,19 +53,27 @@ npm start
 # open http://localhost:3000
 ```
 
-Without `OPENAI_API_KEY`, photo recognition runs in **demo mode**: it returns sample results so you can try the whole flow.
+Without an API key, photo recognition runs in **demo mode**: it returns fixed sample results (clearly labelled) so you can try the whole flow.
 
 #### Turn on real photo recognition
 
+Use Claude (recommended) or OpenAI. Get a Claude key at platform.claude.com:
+
 ```bash
-OPENAI_API_KEY=sk-... npm start
+ANTHROPIC_API_KEY=sk-ant-... npm start
 ```
+
+Then sign up for your own account; demo accounts always get sample results unless `DEMO_USES_AI=1`. The default model, Claude Haiku 5.5, is the fastest and cheapest Claude model: with photos shrunk to 1024 px, a photo costs roughly a tenth of a US cent.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `OPENAI_API_KEY` | empty | Leave empty for demo mode |
+| `ANTHROPIC_API_KEY` | empty | Claude key; used first when set |
+| `ANTHROPIC_VISION_MODEL` | `claude-haiku-5-5` | e.g. `claude-sonnet-5-5` for harder photos (slower, about 20× the price) |
+| `ANTHROPIC_EFFORT` | model default | `low` is faster and cheaper, `high` thinks more about portions |
+| `OPENAI_API_KEY` | empty | OpenAI key, used when there is no Claude key |
 | `OPENAI_VISION_MODEL` | `gpt-4.1-mini` | Change this if the model is retired or you want another |
 | `OPENAI_IMAGE_DETAIL` | `auto` | `low` is cheaper, `high` reads portions more closely |
+| `AI_PROVIDER` | automatic | `anthropic` or `openai` to choose when both keys are set |
 | `RECOGNIZE_DAILY_LIMIT` | `30` | Photo recognitions per account per day |
 | `DEMO_USES_AI` | `0` | Set to `1` to let demo accounts use the real model (costs money on a public site) |
 | `DB_PATH` | `./data/glidepath.db` | Where the SQLite database lives |
@@ -74,12 +82,12 @@ OPENAI_API_KEY=sk-... npm start
 | `POSE_MODEL_FILE` | empty | Path to a local copy of the model; the server then serves it itself (useful where Google is blocked) |
 | `PORT` | `3000` | |
 
-Set a monthly spending limit in your OpenAI account. Photos are shrunk in the browser to 1024 px on the long side before upload, and discarded after recognition.
+Set a monthly spending limit in your Claude Console or OpenAI account. Photos are shrunk in the browser to 1024 px on the long side before upload, and discarded after recognition.
 
 ### Tests
 
 ```bash
-npm test                          # 87 unit + API tests (math, safety rules, progression, rep counting, account isolation, the vision-model call…)
+npm test                          # 88 unit + API tests (math, safety rules, progression, rep counting, account isolation, the vision-model call…)
 npx playwright install chromium   # once, before the first browser test run
 npm run e2e                       # 15 end-to-end browser tests at phone size (signup, photo, search, weight, training, camera counting, language, screening, dark mode…)
 SHOTS=shots npm run e2e           # also save a screenshot of each step to shots/
@@ -89,7 +97,7 @@ The rep-counting tests use real MediaPipe output: `test/fixtures/pose-frames.jso
 
 ### Deploy (Render)
 
-`render.yaml` is included: on Render choose New → Blueprint → this repo → Apply. It deploys in demo mode; when you have an OpenAI key, add `OPENAI_API_KEY` under the service's Environment tab.
+`render.yaml` is included: on Render choose New → Blueprint → this repo → Apply. It deploys in demo mode; when you have a key, add `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) under the service's Environment tab.
 
 Note: Render's free plan sleeps after 15 minutes without visitors, and its disk isn't persistent, so **every restart or deploy wipes all accounts and logs in SQLite**. For real users, use a paid instance with a persistent disk and point `DB_PATH` at it (for example `/var/data/glidepath.db`).
 
@@ -100,7 +108,7 @@ server/
   index.js        Express app, security headers, static files
   api.js          all /api routes
   store.js        data access, plan creation, workout logging and progression
-  ai.js           photo recognition (OpenAI vision model + demo results)
+  ai.js           photo recognition (Claude or OpenAI vision model + demo results)
   demo.js         demo account with four weeks of sample data
   auth.js         scrypt passwords, sessions (stored in the database, so restarts don't log you out)
   db.js           SQLite schema (built-in node:sqlite) and transactions
@@ -195,19 +203,27 @@ npm start
 # 打开 http://localhost:3000
 ```
 
-没有设置 `OPENAI_API_KEY` 时，拍照识别是**演示模式**：返回示例结果，整个流程都能走通。
+没有设置 API key 时，拍照识别是**演示模式**：返回固定的示例结果（会明确标出来），整个流程都能走通。
 
 #### 开启真实的拍照识别
 
+可以用 Claude（推荐）或 OpenAI。Claude 的 key 在 platform.claude.com 申请：
+
 ```bash
-OPENAI_API_KEY=sk-... npm start
+ANTHROPIC_API_KEY=sk-ant-... npm start
 ```
+
+然后注册一个自己的账号再试；演示账号永远只给示例结果，除非设置 `DEMO_USES_AI=1`。默认模型 Claude Haiku 5.5 是最快最便宜的 Claude 模型，照片缩到 1024 像素后，一张大约 0.1 美分。
 
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| `OPENAI_API_KEY` | 空 | 不填就是演示模式 |
+| `ANTHROPIC_API_KEY` | 空 | Claude 的 key；设置了就优先用 |
+| `ANTHROPIC_VISION_MODEL` | `claude-haiku-5-5` | 比如换成 `claude-sonnet-5-5` 识别更难的照片（更慢，价格约 20 倍） |
+| `ANTHROPIC_EFFORT` | 模型默认 | `low` 更快更便宜，`high` 估分量时想得更多 |
+| `OPENAI_API_KEY` | 空 | OpenAI 的 key，没有 Claude key 时才用 |
 | `OPENAI_VISION_MODEL` | `gpt-4.1-mini` | 模型下线或想换时改这里 |
 | `OPENAI_IMAGE_DETAIL` | `auto` | `low` 更便宜，`high` 看分量更细 |
+| `AI_PROVIDER` | 自动 | 两个 key 都有时，用 `anthropic` 或 `openai` 指定 |
 | `RECOGNIZE_DAILY_LIMIT` | `30` | 每个账号每天最多识别几次 |
 | `DEMO_USES_AI` | `0` | 设成 `1` 演示账号也会调用真实模型（公开网站上会花钱） |
 | `DB_PATH` | `./data/glidepath.db` | SQLite 数据库位置 |
@@ -216,12 +232,12 @@ OPENAI_API_KEY=sk-... npm start
 | `POSE_MODEL_FILE` | 空 | 本地模型文件的路径，填了以后由服务器自己提供（Google 打不开的地区用这个） |
 | `PORT` | `3000` | |
 
-建议在 OpenAI 后台设置每月花费上限。照片在浏览器里先缩小到最长边 1024 像素再上传，识别完就丢掉，不保存。
+建议在 Claude Console 或 OpenAI 后台设置每月花费上限。照片在浏览器里先缩小到最长边 1024 像素再上传，识别完就丢掉，不保存。
 
 ### 测试
 
 ```bash
-npm test                          # 87 个单元 + 接口测试（计算、安全规则、训练进阶、动作计数、账号隔离、拍照识别的模型调用等）
+npm test                          # 88 个单元 + 接口测试（计算、安全规则、训练进阶、动作计数、账号隔离、拍照识别的模型调用等）
 npx playwright install chromium   # 第一次跑端到端测试前装一次
 npm run e2e                       # 15 个浏览器端到端测试，手机尺寸（注册建档、拍照、搜索、体重、训练、摄像头计数、切换语言、筛查、深色模式…）
 SHOTS=shots npm run e2e           # 顺便把每一步截图存到 shots/
@@ -231,7 +247,7 @@ SHOTS=shots npm run e2e           # 顺便把每一步截图存到 shots/
 
 ### 部署（Render）
 
-仓库里有 `render.yaml`：Render 上选 New → Blueprint → 选这个仓库 → Apply。部署出来是演示模式；有了 OpenAI key 以后，在服务的 Environment 页面加上 `OPENAI_API_KEY`。
+仓库里有 `render.yaml`：Render 上选 New → Blueprint → 选这个仓库 → Apply。部署出来是演示模式；有了 key 以后，在服务的 Environment 页面加上 `ANTHROPIC_API_KEY`（或 `OPENAI_API_KEY`）。
 
 注意：Render 免费版 15 分钟没人访问会休眠，而且硬盘不持久，**重启或重新部署会清空 SQLite 里的所有账号和记录**。给真实用户用，需要付费实例 + 持久盘，并把 `DB_PATH` 指到盘上（例如 `/var/data/glidepath.db`）。
 
@@ -242,7 +258,7 @@ server/
   index.js        Express 应用、安全头、静态文件
   api.js          所有 /api 接口
   store.js        数据读写、建计划、记训练和进阶
-  ai.js           拍照识别（OpenAI 视觉模型 + 演示结果）
+  ai.js           拍照识别（Claude 或 OpenAI 视觉模型 + 演示结果）
   demo.js         演示账号和 4 周示例数据
   auth.js         密码 scrypt、登录会话（存在数据库里，重启不会掉线）
   db.js           SQLite 表结构（Node 自带的 node:sqlite）和事务
