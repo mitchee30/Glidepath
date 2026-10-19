@@ -17,5 +17,5 @@ services:
         value: "1"
       - key: RECOGNIZE_DAILY_LIMIT
         value: "30"
-      - key: OPENAI_API_KEY
-        sync: false
+      # Photo recognition runs in demo mode until you add OPENAI_API_KEY
+      # under the service's Environment tab (not prompted here on purpose).

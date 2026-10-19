@@ -89,7 +89,7 @@ The rep-counting tests use real MediaPipe output: `test/fixtures/pose-frames.jso
 
 ### Deploy (Render)
 
-`render.yaml` is included: on Render choose New → Blueprint → this repo, then add `OPENAI_API_KEY` in the environment settings.
+`render.yaml` is included: on Render choose New → Blueprint → this repo → Apply. It deploys in demo mode; when you have an OpenAI key, add `OPENAI_API_KEY` under the service's Environment tab.
 
 Note: Render's free plan sleeps after 15 minutes without visitors, and its disk isn't persistent, so **every restart or deploy wipes all accounts and logs in SQLite**. For real users, use a paid instance with a persistent disk and point `DB_PATH` at it (for example `/var/data/glidepath.db`).
 
@@ -231,7 +231,7 @@ SHOTS=shots npm run e2e           # 顺便把每一步截图存到 shots/
 
 ### 部署（Render）
 
-仓库里有 `render.yaml`：Render 上选 New → Blueprint → 选这个仓库，部署好后在环境变量里填 `OPENAI_API_KEY`。
+仓库里有 `render.yaml`：Render 上选 New → Blueprint → 选这个仓库 → Apply。部署出来是演示模式；有了 OpenAI key 以后，在服务的 Environment 页面加上 `OPENAI_API_KEY`。
 
 注意：Render 免费版 15 分钟没人访问会休眠，而且硬盘不持久，**重启或重新部署会清空 SQLite 里的所有账号和记录**。给真实用户用，需要付费实例 + 持久盘，并把 `DB_PATH` 指到盘上（例如 `/var/data/glidepath.db`）。
 
