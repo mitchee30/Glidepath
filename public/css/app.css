@@ -35,6 +35,8 @@
   --c-trend: #2550B8;
   --c-day: #7E9BE0;
   --c-goal: #24895A;
+  --c-band: rgba(106, 76, 147, 0.13);
+  --c-warn: #C98A1E;
 
   --font: "Archivo", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
   --r-sheet: 6px;
@@ -68,6 +70,8 @@
     --c-trend: #6C90EA;
     --c-day: #4060B8;
     --c-goal: #3DA570;
+    --c-band: rgba(194, 168, 234, 0.15);
+    --c-warn: #D9A44A;
     color-scheme: dark;
   }
 }
@@ -653,6 +657,61 @@ dialog.sheet.sheet-wide { max-width: 720px; }
 .explain li b { font-weight: 650; }
 .explain li span { color: var(--ink-2); font-size: 0.9375rem; }
 .help-block summary { color: var(--ink); }
+
+/* -------------------------------------------------------------- body log */
+
+.center { text-align: center; }
+.toggles { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.toggles li + li { border-top: 1px solid var(--rule); }
+.toggle {
+  display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name switch" "why switch";
+  column-gap: 16px; row-gap: 2px; align-items: center; padding: 12px 0; cursor: pointer;
+}
+.toggles li:first-child .toggle { padding-top: 2px; }
+.toggles li:last-child .toggle { padding-bottom: 2px; }
+.toggle b { grid-area: name; font-weight: 600; }
+.toggle small { grid-area: why; color: var(--ink-2); font-size: 0.875rem; }
+.toggle input {
+  grid-area: switch; appearance: none; -webkit-appearance: none; margin: 0; flex: none;
+  width: 48px; height: 28px; border-radius: var(--r-pill); background: var(--rule); position: relative; cursor: pointer;
+  transition: background-color .15s ease;
+}
+.toggle input::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: translate .15s ease;
+}
+.toggle input:checked { background: var(--pen); }
+.toggle input:checked::after { translate: 20px 0; }
+.toggle input:disabled { opacity: .6; }
+.toggle input:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+
+.btn-start { align-self: flex-start; }
+.cycle-now { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.cycle-now > p:first-child, .cycle-line { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+.cycle-now > p:first-child b, .cycle-line b { font-size: 1.0625rem; }
+.cycle-now > p:first-child span, .cycle-line span { color: var(--ink-2); }
+.cycle-block .btn { align-self: flex-start; }
+.cycle-hint { padding-left: 10px; border-left: 3px solid color-mix(in srgb, var(--care) 45%, transparent); }
+.checkin-wide { grid-column: 1 / -1; }
+.checkin-wide legend { margin-bottom: 8px; font-size: 0.9375rem; }
+.water { display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.block > .water:first-of-type { border-top: 0; padding-top: 0; }
+#water .water { border-top: 0; padding-top: 0; }
+.water-label { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.water-label span { font-weight: 600; font-size: 0.9375rem; }
+.water-label small { color: var(--ink-3); }
+.water-count { font-size: 1.125rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.icon-btn-line { border: 1.5px solid var(--rule); width: 36px; height: 36px; }
+.waist-line { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: 0.9375rem; }
+.waist-line a { margin-left: auto; font-weight: 600; text-decoration: none; }
+.intro-card .row-actions { justify-content: flex-start; }
+.chart .band { fill: var(--c-band); }
+.chart .bar-soft { fill: var(--c-day); }
+.chart .bar-warn { fill: var(--c-warn); }
+.key-band { width: 12px; height: 12px; border-radius: 2px; background: var(--c-band); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--care) 35%, transparent); }
+.key-bar { width: 10px; height: 10px; border-radius: 2px; background: var(--c-trend); }
+.key-bar.key-soft { background: var(--c-day); }
+.key-bar.key-warn { background: var(--c-warn); }
 
 /* ---------------------------------------------------------------- toast */
 

@@ -226,11 +226,61 @@ await step('weight: log today and see it in the table', async () => {
   await page.goto(`${BASE}/#/weight`);
   await page.waitForSelector('[data-log]');
   await page.fill('[data-log] input[name=kg]', '71.6');
-  await page.fill('[data-log] input[name=waist]', '86');
   await page.click('[data-log] button[type=submit]');
   await page.waitForFunction(() => document.querySelector('.data-table tbody tr td:nth-child(2)')?.textContent === '71.6');
   assert.ok(await page.$('[data-chart] svg .trend-line'));
   await noHorizontalScroll(page);
+});
+
+await step('body log: switch on the extras, log waist, period and water, see them on Today', async () => {
+  const page = mainPage;
+  await page.goto(`${BASE}/#/today`);
+  await page.waitForSelector('.intro-card');
+  assert.equal(await page.$('[name=sleepQuality]'), null, 'nothing extra until switched on');
+  await page.click('.intro-card a[href="#/body"]');
+  await page.waitForSelector('.body-log .toggles');
+  assert.equal(await page.$$eval('.toggle input:checked', (els) => els.length), 0);
+  assert.match(await page.getAttribute('.tabbar a[href="#/me"]', 'class'), /active/);
+  for (const [k, id] of [['waist', 'waist'], ['cycle', 'cycle'], ['sleepQuality', 'sleep'], ['water', 'water']]) {
+    await page.check(`input[data-track=${k}]`);
+    await page.waitForSelector(`#${id}`);
+  }
+  await page.fill('[data-waist] input[name=cm]', '86');
+  await page.click('[data-waist] button[type=submit]');
+  await page.waitForSelector('#waist .stat-row');
+  assert.match(await page.textContent('#waist .stat-row'), /86\.0/);
+  assert.match(await page.textContent('#waist'), /0\.52/);
+
+  await page.click('#cycle [data-period-start]');
+  await page.waitForFunction(() => document.querySelector('#cycle .cycle-now b')?.textContent === '经期第 1 天');
+  assert.ok(await page.$('#cycle [data-period-end]'));
+
+  const saved = page.waitForResponse((r) => r.url().endsWith('/api/daily') && r.request().postDataJSON().waterMl === 500);
+  await page.click('#water [data-water="1"]');
+  await page.click('#water [data-water="1"]');
+  await saved;
+  assert.equal(await page.textContent('#water [data-water-count]'), '2 / 7 杯');
+  await noHorizontalScroll(page);
+  await shot(page, 'body-log');
+
+  await page.click('.tabbar a[href="#/today"]');
+  await page.waitForSelector('.cycle-block');
+  assert.equal(await page.$('.intro-card'), null);
+  assert.equal(await page.textContent('.cycle-block .cycle-line b'), '经期第 1 天');
+  assert.equal(await page.textContent('[data-water-count]'), '2 / 7 杯');
+  const quality = page.waitForResponse((r) => r.url().endsWith('/api/daily') && r.request().postDataJSON().sleepQuality === 1);
+  await page.check('[name=sleepQuality][value="1"]', { force: true });
+  await quality;
+  await page.click('.cycle-block [data-period-end]');
+  await page.waitForFunction(() => !document.querySelector('.cycle-block [data-period-end]') && document.querySelector('.cycle-block'));
+  await noHorizontalScroll(page);
+  await shot(page, 'today-tracking');
+
+  await page.click('.tabbar a[href="#/weight"]');
+  await page.waitForSelector('[data-chart] svg');
+  assert.ok(await page.$('[data-chart] svg .band'), 'period shaded on the weight chart');
+  assert.ok(await page.$('.waist-line'));
+  assert.deepEqual(page.errors, []);
 });
 
 await step('training: do a session, see progression, undo it', async () => {
@@ -334,6 +384,13 @@ await step('demo account: every tab loads, no errors, dark mode', async () => {
       assert.ok(dots > 15, `weight chart shows ${dots} days`);
     }
   }
+  await page.goto(`${BASE}/#/body`);
+  await page.waitForSelector('#water [data-water-chart] svg');
+  assert.ok(await page.$('#waist [data-waist-chart] svg'));
+  assert.ok(await page.$('#sleep [data-sleep-chart] svg .bar'));
+  assert.match(await page.textContent('#cycle .cycle-now'), /黄体期|周期第/);
+  await noHorizontalScroll(page);
+  await shot(page, 'demo-body-dark');
   assert.deepEqual(page.errors, []);
   await page.context().close();
 });

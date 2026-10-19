@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   is_demo INTEGER NOT NULL DEFAULT 0,
   lang TEXT NOT NULL DEFAULT 'zh',
   units TEXT NOT NULL DEFAULT 'metric',
+  tracking TEXT NOT NULL DEFAULT '{}',
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -52,14 +53,27 @@ CREATE TABLE IF NOT EXISTS weights (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   date TEXT NOT NULL,
   kg REAL NOT NULL,
-  waist_cm REAL,
   PRIMARY KEY (user_id, date)
+);
+CREATE TABLE IF NOT EXISTS waists (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  cm REAL NOT NULL,
+  PRIMARY KEY (user_id, date)
+);
+CREATE TABLE IF NOT EXISTS periods (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  start_date TEXT NOT NULL,
+  end_date TEXT,
+  PRIMARY KEY (user_id, start_date)
 );
 CREATE TABLE IF NOT EXISTS daily_logs (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   date TEXT NOT NULL,
   steps INTEGER,
   sleep_hours REAL,
+  sleep_quality INTEGER,
+  water_ml INTEGER,
   PRIMARY KEY (user_id, date)
 );
 CREATE TABLE IF NOT EXISTS workouts (
@@ -112,6 +126,23 @@ function addTransactions(db) {
   return db;
 }
 
+const columns = (db, table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+
+/** Brings databases created by earlier versions up to the current schema. Safe to run every start. */
+function migrate(db) {
+  if (!columns(db, 'users').includes('tracking')) db.exec("ALTER TABLE users ADD COLUMN tracking TEXT NOT NULL DEFAULT '{}'");
+  const daily = columns(db, 'daily_logs');
+  if (!daily.includes('sleep_quality')) db.exec('ALTER TABLE daily_logs ADD COLUMN sleep_quality INTEGER');
+  if (!daily.includes('water_ml')) db.exec('ALTER TABLE daily_logs ADD COLUMN water_ml INTEGER');
+  // v0.1 kept an optional waist next to each weigh-in; waist now has its own table
+  if (columns(db, 'weights').includes('waist_cm')) {
+    db.exec(`BEGIN;
+      INSERT OR IGNORE INTO waists (user_id, date, cm) SELECT user_id, date, waist_cm FROM weights WHERE waist_cm IS NOT NULL;
+      ALTER TABLE weights DROP COLUMN waist_cm;
+      COMMIT;`);
+  }
+}
+
 export function openDb(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   const db = new DatabaseSync(file);
@@ -119,5 +150,6 @@ export function openDb(file) {
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA busy_timeout = 3000');
   db.exec(SCHEMA);
+  migrate(db);
   return addTransactions(db);
 }

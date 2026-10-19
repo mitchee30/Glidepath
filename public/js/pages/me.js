@@ -4,6 +4,7 @@ import { post, del } from '../api.js';
 import { state, go, changeLang, refreshMe } from '../app.js';
 import { bmr, tdee, intakeFloor, ACTIVITY, LIMITS, KCAL_PER_KG } from '../core/plan.js';
 import { kgToDisplay, weightUnit, UNIT_SYSTEMS } from '../units.js';
+import { TRACKING_ITEMS } from '../core/body.js';
 import { helpResources, demoBanner } from './shared.js';
 
 function explain(profile, plan) {
@@ -46,6 +47,16 @@ export async function render(root) {
           ${profile ? explain(profile, plan) : ''}
           <a class="btn btn-block" href="#/onboarding">${t('me.redo')}</a>
         </section>` : html`<a class="btn btn-primary btn-block" href="#/onboarding">${t('me.makePlan')}</a>`}
+
+      ${plan ? html`<section class="block">
+        <header class="block-head"><h2>${t('body.title')}</h2></header>
+        ${(() => {
+          const on = TRACKING_ITEMS.filter((k) => user.tracking?.[k]);
+          return on.length ? html`<p>${t('me.bodyOn', { list: on.map((k) => t(`body.item.${k}`)).join(t('common.listSep')) })}</p>`
+            : html`<p class="muted">${t('me.bodyOff')}</p>`;
+        })()}
+        <a class="btn btn-block" href="#/body">${t('me.bodyOpen')}</a>
+      </section>` : ''}
 
       <section class="block">
         <header class="block-head"><h2>${t('me.settings')}</h2></header>

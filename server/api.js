@@ -12,6 +12,8 @@ import { movingAverage, trendWeight, weeklyChange, isPlateau, safetySignals } fr
 import { weeklyAverage, MEALS } from '../public/js/core/nutrition.js';
 import { resolveDay } from '../public/js/core/training.js';
 import { addDays, daysBetween, isISODate, weekday } from '../public/js/core/dates.js';
+import { waistSummary, waistDown, poorSleep, waterTarget } from '../public/js/core/body.js';
+import { cycleStatus, periodBands } from '../public/js/core/cycle.js';
 
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
 const INJURIES = ['knee', 'back', 'shoulder', 'wrist'];
@@ -55,7 +57,10 @@ export function createApi(db, opts) {
     if (!isISODate(v) || v < '2000-01-01' || v > addDays(serverToday(), 1)) throw new HttpError(400, `bad_${name}`);
     return v;
   };
-  const publicUser = (u) => ({ id: u.id, email: u.is_demo ? null : u.email, isDemo: !!u.is_demo, lang: u.lang, units: u.units });
+  const publicUser = (u) => ({
+    id: u.id, email: u.is_demo ? null : u.email, isDemo: !!u.is_demo, lang: u.lang, units: u.units, tracking: store.getTracking(u),
+  });
+  const optNum = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
 
   function cleanProfile(b) {
     const p = {
@@ -152,6 +157,11 @@ export function createApi(db, opts) {
     res.json({ user: publicUser({ ...req.user, lang, units }) });
   }));
 
+  // which optional measures (waist, cycle, sleep quality, water) this person wants to see
+  api.post('/tracking', auth, wrap((req, res) => {
+    res.json({ user: publicUser(store.setTracking(db, req.user, req.body || {})) });
+  }));
+
   // -------------------------------------------------------- profile/plan
   api.post('/profile/evaluate', auth, wrap((req, res) => {
     const today = date(req.body.today, 'today');
@@ -206,6 +216,7 @@ export function createApi(db, opts) {
     const plan = store.getPlan(db, uid);
     if (!plan || !profile) return res.json({ needsOnboarding: true });
 
+    const tracking = store.getTracking(req.user);
     const weights = store.getWeights(db, uid);
     const trend = trendWeight(weights);
     let targets = plan.targets;
@@ -220,6 +231,18 @@ export function createApi(db, opts) {
     });
     const sincePlan = weights.filter((w) => w.date >= plan.createdAt);
     const day = resolveDay(plan.training, weekday(today), store.getState(db, uid));
+    const dailyWeek = store.dailyRange(db, uid, addDays(today, -6), today);
+
+    // optional measures change how weight is read: water before a period, or a shrinking waist
+    const waists = tracking.waist ? store.getWaists(db, uid) : [];
+    const periods = tracking.cycle ? store.getPeriods(db, uid) : [];
+    const cycle = tracking.cycle ? cycleStatus(periods, today, tracking.cycleKind) : null;
+    const cycleWater = !!cycle?.retention;
+    const loss = plan.phase === 'loss';
+    const flat = loss && isPlateau(sincePlan);
+    const shrinking = flat && tracking.waist ? waistDown(waists, today) : null;
+    const moved = trend !== null && Math.abs(trend - plan.targets.basedOnKg) >= 1;
+
     res.json({
       today,
       phase: plan.phase,
@@ -232,17 +255,48 @@ export function createApi(db, opts) {
         trend,
         latest: weights[weights.length - 1] || null,
         weeklyChange: weeklyChange(weights, 14),
-        projectedEnd: plan.phase === 'loss' ? projectEnd(profile, plan.targets, trend ?? profile.weightKg, today) : null,
-        plateau: plan.phase === 'loss' && isPlateau(sincePlan),
-        reachedGoal: plan.phase === 'loss' && trend !== null && trend <= plan.targets.goalKg + 0.2,
-        needsRecalc: plan.phase === 'loss' && trend !== null && Math.abs(trend - plan.targets.basedOnKg) >= 1,
+        projectedEnd: loss ? projectEnd(profile, plan.targets, trend ?? profile.weightKg, today) : null,
+        plateau: flat && !shrinking && !cycleWater,
+        waistDown: shrinking,
+        cycleWater,
+        reachedGoal: loss && trend !== null && trend <= plan.targets.goalKg + 0.2,
+        // an upward move during the premenstrual week is mostly water: don't raise targets for it
+        needsRecalc: loss && moved && !(cycleWater && trend > plan.targets.basedOnKg),
         loggedToday: weights.some((w) => w.date === today),
       },
       signals,
       workout: { day, log: store.getWorkout(db, uid, today), week: store.weekTraining(db, uid, plan, today) },
       daily: store.getDaily(db, uid, today),
-      dailyWeek: store.dailyRange(db, uid, addDays(today, -6), today),
+      dailyWeek,
+      tracking,
+      body: {
+        poorSleep: poorSleep(dailyWeek, today),
+        waist: tracking.waist ? waistSummary(waists, profile.heightCm, today) : null,
+        cycle,
+        bands: tracking.cycle ? periodBands(periods, today) : [],
+        water: tracking.water ? waterTarget(profile.sex) : null,
+      },
       diet: profile.diet,
+    });
+  }));
+
+  // Everything the body log page shows: raw entries plus the targets they're compared with.
+  api.get('/body', auth, wrap((req, res) => {
+    const uid = req.user.id;
+    const today = date(req.query.today, 'today');
+    const profile = store.getProfile(db, uid);
+    const plan = store.getPlan(db, uid);
+    if (!plan || !profile) return res.json({ needsOnboarding: true });
+    res.json({
+      today,
+      tracking: store.getTracking(req.user),
+      heightCm: profile.heightCm,
+      sex: profile.sex,
+      sleepTarget: plan.targets.sleep,
+      water: waterTarget(profile.sex),
+      waists: store.getWaists(db, uid),
+      periods: store.getPeriods(db, uid),
+      daily: store.dailyRange(db, uid, addDays(today, -13), today),
     });
   }));
 
@@ -311,15 +365,11 @@ export function createApi(db, opts) {
 
   // -------------------------------------------------------------- weights
   api.get('/weights', auth, wrap((req, res) => {
-    const weights = store.getWeights(db, req.user.id);
-    const waist = new Map(weights.map((w) => [w.date, w.waistCm]));
-    res.json({ weights: movingAverage(weights).map((p) => ({ ...p, waistCm: waist.get(p.date) ?? null })) });
+    res.json({ weights: movingAverage(store.getWeights(db, req.user.id)) });
   }));
 
   api.post('/weights', auth, wrap((req, res) => {
-    const d = date(req.body.date);
-    const waist = req.body.waistCm === undefined || req.body.waistCm === null || req.body.waistCm === '' ? null : Number(req.body.waistCm);
-    store.setWeight(db, req.user.id, d, Number(req.body.kg), waist);
+    store.setWeight(db, req.user.id, date(req.body.date), Number(req.body.kg));
     res.status(201).json({ ok: true });
   }));
 
@@ -328,12 +378,44 @@ export function createApi(db, opts) {
     res.json({ ok: true });
   }));
 
+  // ---------------------------------------------------------------- waist
+  api.post('/waist', auth, wrap((req, res) => {
+    store.setWaist(db, req.user.id, date(req.body.date), Number(req.body.cm));
+    res.status(201).json({ waists: store.getWaists(db, req.user.id) });
+  }));
+
+  api.delete('/waist/:date', auth, wrap((req, res) => {
+    store.deleteWaist(db, req.user.id, date(req.params.date));
+    res.json({ ok: true });
+  }));
+
+  // ---------------------------------------------------------------- cycle
+  api.post('/periods', auth, wrap((req, res) => {
+    const today = date(req.body.today, 'today');
+    const start = date(req.body.start, 'start');
+    const end = req.body.end ? date(req.body.end, 'end') : null;
+    res.status(201).json({ periods: store.savePeriod(db, req.user.id, { start, end }, today) });
+  }));
+
+  api.delete('/periods/:start', auth, wrap((req, res) => {
+    store.deletePeriod(db, req.user.id, date(req.params.start, 'start'));
+    res.json({ ok: true });
+  }));
+
+  api.delete('/periods', auth, wrap((req, res) => {
+    store.clearPeriods(db, req.user.id);
+    res.json({ ok: true });
+  }));
+
   // ---------------------------------------------------------------- daily
   api.post('/daily', auth, wrap((req, res) => {
     const d = date(req.body.date);
-    const steps = req.body.steps === undefined || req.body.steps === null || req.body.steps === '' ? null : Number(req.body.steps);
-    const sleepHours = req.body.sleepHours === undefined || req.body.sleepHours === null || req.body.sleepHours === '' ? null : Number(req.body.sleepHours);
-    res.json({ daily: store.setDaily(db, req.user.id, d, { steps, sleepHours }) });
+    const b = req.body;
+    res.json({
+      daily: store.setDaily(db, req.user.id, d, {
+        steps: optNum(b.steps), sleepHours: optNum(b.sleepHours), sleepQuality: optNum(b.sleepQuality), waterMl: optNum(b.waterMl),
+      }),
+    });
   }));
 
   // -------------------------------------------------------------- workout

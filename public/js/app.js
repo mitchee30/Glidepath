@@ -9,6 +9,7 @@ import * as food from './pages/food.js';
 import * as train from './pages/train.js';
 import * as weight from './pages/weight.js';
 import * as me from './pages/me.js';
+import * as body from './pages/body.js';
 
 export const state = { user: null, profile: null, plan: null, ai: { enabled: false, demo: true }, config: null, booted: false };
 
@@ -24,9 +25,12 @@ const PAGES = {
   train: train.render,
   weight: weight.render,
   me: me.render,
+  body: body.render,
 };
 const PUBLIC = new Set(['welcome', 'login', 'register']);
 const TABS = ['today', 'food', 'train', 'weight', 'me'];
+/** Pages outside the tab bar that keep it visible, with their parent tab highlighted. */
+const UNDER_TAB = { body: 'me' };
 
 export function go(path) {
   const next = '#/' + path;
@@ -88,7 +92,7 @@ export async function route() {
 
   if (!state.user && !PUBLIC.has(name)) name = 'welcome';
   else if (state.user && (PUBLIC.has(name) || name === '')) name = state.plan ? 'today' : 'onboarding';
-  else if (state.user && !state.plan && TABS.includes(name) && name !== 'me') name = 'onboarding';
+  else if (state.user && !state.plan && (TABS.includes(name) || name in UNDER_TAB) && name !== 'me') name = 'onboarding';
   if (!PAGES[name]) name = state.user ? 'today' : 'welcome';
 
   const seq = ++renderSeq;
@@ -98,7 +102,7 @@ export async function route() {
   old.replaceWith(view);
   document.documentElement.lang = getLang() === 'zh' ? 'zh-CN' : 'en';
   document.body.dataset.page = name;
-  renderTabs(TABS.includes(name) ? name : null);
+  renderTabs(TABS.includes(name) ? name : UNDER_TAB[name] || null);
   try {
     await PAGES[name](view, params, () => seq === renderSeq);
     if (seq === renderSeq) {

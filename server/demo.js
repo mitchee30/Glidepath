@@ -3,8 +3,10 @@
 
 import crypto from 'node:crypto';
 import { hashPassword } from './auth.js';
-import { addFood, createPlan, logWorkout, saveProfile, setDaily, setWeight, getState, getPlan, dayTotals } from './store.js';
-import { addDays, weekday } from '../public/js/core/dates.js';
+import {
+  addFood, createPlan, logWorkout, saveProfile, setDaily, setWeight, setWaist, savePeriod, getState, getPlan, dayTotals,
+} from './store.js';
+import { addDays, daysBetween, weekday } from '../public/js/core/dates.js';
 import { resolveDay, EXERCISES } from '../public/js/core/training.js';
 import { evaluateGoal } from '../public/js/core/plan.js';
 
@@ -57,8 +59,10 @@ export function demoProfile(today) {
 export function createDemoUser(db, today, lang = 'zh') {
   const rnd = prng(crypto.randomBytes(4).readUInt32LE());
   const email = `demo+${crypto.randomBytes(6).toString('hex')}@glidepath.local`;
-  const uid = db.prepare('INSERT INTO users (email, pass, is_demo, lang, units, created_at) VALUES (?, ?, 1, ?, ?, ?)')
-    .run(email, hashPassword(crypto.randomBytes(18).toString('base64')), lang === 'en' ? 'en' : 'zh', 'metric', Date.now()).lastInsertRowid;
+  // the demo shows every optional measure, so people can see what they would get
+  const tracking = JSON.stringify({ waist: true, cycle: true, sleepQuality: true, water: true, cycleKind: 'natural', introDismissed: true });
+  const uid = db.prepare('INSERT INTO users (email, pass, is_demo, lang, units, tracking, created_at) VALUES (?, ?, 1, ?, ?, ?, ?)')
+    .run(email, hashPassword(crypto.randomBytes(18).toString('base64')), lang === 'en' ? 'en' : 'zh', 'metric', tracking, Date.now()).lastInsertRowid;
 
   const start = addDays(today, -27);
   const profile = demoProfile(start);
@@ -66,16 +70,25 @@ export function createDemoUser(db, today, lang = 'zh') {
   const plan = createPlan(db, uid, profile, evaluateGoal(profile, start).recommended, start);
   const target = plan.targets.calories;
 
+  // periods every 29 days; the next one is due in four days, so today sits in the premenstrual week
+  const periodStarts = [addDays(today, -54), addDays(today, -25)];
+  const premenstrual = (date) => periodStarts.concat(addDays(today, 4)).some((p) => {
+    const d = daysBetween(p, date);
+    return d >= -6 && d <= 2;
+  });
+
   const seed = db.transaction(() => {
+    for (const p of periodStarts) savePeriod(db, uid, { start: p, end: addDays(p, 4) }, today);
     for (let i = 0; i <= 27; i++) {
       const date = addDays(start, i);
       const isToday = date === today;
 
-      // weight: ~0.36 kg/week down, with day-to-day water swings; some days skipped
+      // weight: ~0.36 kg/week down, with day-to-day water swings (more before a period); some days skipped
       if (i === 0 || isToday || rnd() > 0.15) {
-        const swing = (rnd() - 0.5) * 0.8 + (weekday(date) === 0 ? 0.25 : 0);
-        setWeight(db, uid, date, Math.round((72.4 - (0.36 / 7) * i + swing) * 10) / 10, i % 7 === 0 ? Math.round((88 - i * 0.07) * 10) / 10 : null);
+        const swing = (rnd() - 0.5) * 0.8 + (weekday(date) === 0 ? 0.25 : 0) + (premenstrual(date) ? 0.6 : 0);
+        setWeight(db, uid, date, Math.round((72.4 - (0.36 / 7) * i + swing) * 10) / 10);
       }
+      if (i % 7 === 0) setWaist(db, uid, date, Math.round((88 - i * 0.07 + (rnd() - 0.5) * 0.4) * 10) / 10);
 
       // meals
       const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
@@ -97,7 +110,15 @@ export function createDemoUser(db, today, lang = 'zh') {
       }
 
       if (!isToday) {
-        setDaily(db, uid, date, { steps: Math.round(5500 + rnd() * 5500), sleepHours: Math.round((6.3 + rnd() * 1.9) * 10) / 10 });
+        const sleepHours = Math.round((6.3 + rnd() * 1.9) * 10) / 10;
+        setDaily(db, uid, date, {
+          steps: Math.round(5500 + rnd() * 5500),
+          sleepHours,
+          sleepQuality: sleepHours < 6.7 ? 1 : sleepHours < 7.4 ? 2 : 3,
+          waterMl: Math.round(4 + rnd() * 5) * 250,
+        });
+      } else {
+        setDaily(db, uid, date, { sleepHours: 7.5, sleepQuality: 3, waterMl: 750 });
       }
 
       // workouts on planned days, most of them done

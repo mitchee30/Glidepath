@@ -5,6 +5,8 @@ import { getFood } from '../public/js/core/foods.js';
 import { buildTargets, evaluateGoal, screen } from '../public/js/core/plan.js';
 import { buildTrainingPlan, resolveDay, progress } from '../public/js/core/training.js';
 import { addDays, weekday } from '../public/js/core/dates.js';
+import { TRACKING_ITEMS, SLEEP_QUALITY, MAX_WATER_ML } from '../public/js/core/body.js';
+import { CYCLE_KINDS, checkPeriod } from '../public/js/core/cycle.js';
 
 const json = (s) => (s ? JSON.parse(s) : null);
 const now = () => Date.now();
@@ -176,42 +178,113 @@ export function copyMeal(db, uid, from, to, meal) {
 // ------------------------------------------------------------------ weights
 
 export function getWeights(db, uid) {
-  return db.prepare('SELECT date, kg, waist_cm AS waistCm FROM weights WHERE user_id = ? ORDER BY date').all(uid);
+  return db.prepare('SELECT date, kg FROM weights WHERE user_id = ? ORDER BY date').all(uid);
 }
 
-export function setWeight(db, uid, date, kg, waistCm = null) {
+export function setWeight(db, uid, date, kg) {
   if (!num(kg, 30, 300)) throw new HttpError(400, 'bad_weight');
-  if (waistCm !== null && !num(waistCm, 40, 250)) throw new HttpError(400, 'bad_waist');
-  db.prepare(`INSERT INTO weights (user_id, date, kg, waist_cm) VALUES (?, ?, ?, ?)
-              ON CONFLICT(user_id, date) DO UPDATE SET kg = excluded.kg, waist_cm = COALESCE(excluded.waist_cm, weights.waist_cm)`)
-    .run(uid, date, Math.round(kg * 100) / 100, waistCm);
+  db.prepare(`INSERT INTO weights (user_id, date, kg) VALUES (?, ?, ?)
+              ON CONFLICT(user_id, date) DO UPDATE SET kg = excluded.kg`)
+    .run(uid, date, Math.round(kg * 100) / 100);
 }
 
 export function deleteWeight(db, uid, date) {
   db.prepare('DELETE FROM weights WHERE user_id = ? AND date = ?').run(uid, date);
 }
 
-// -------------------------------------------------------------- daily logs
+// --------------------------------------------------------- optional tracking
 
-export function getDaily(db, uid, date) {
-  const r = db.prepare('SELECT steps, sleep_hours AS sleepHours FROM daily_logs WHERE user_id = ? AND date = ?').get(uid, date);
-  return r || { steps: null, sleepHours: null };
+export const TRACKING_DEFAULT = { waist: false, cycle: false, sleepQuality: false, water: false, cycleKind: 'natural', introDismissed: false };
+
+export function getTracking(user) {
+  let saved = {};
+  try { saved = JSON.parse(user?.tracking || '{}') || {}; } catch { /* keep defaults */ }
+  const out = { ...TRACKING_DEFAULT };
+  for (const k of Object.keys(TRACKING_DEFAULT)) if (k in saved) out[k] = saved[k];
+  return out;
 }
 
-export function setDaily(db, uid, date, { steps, sleepHours }) {
+/** Applies a partial change; unknown keys are ignored and values are checked. */
+export function setTracking(db, user, patch) {
+  const next = getTracking(user);
+  for (const k of [...TRACKING_ITEMS, 'introDismissed']) {
+    if (patch[k] === undefined) continue;
+    if (typeof patch[k] !== 'boolean') throw new HttpError(400, 'bad_tracking');
+    next[k] = patch[k];
+  }
+  if (patch.cycleKind !== undefined) {
+    if (!CYCLE_KINDS.includes(patch.cycleKind)) throw new HttpError(400, 'bad_tracking');
+    next.cycleKind = patch.cycleKind;
+  }
+  const text = JSON.stringify(next);
+  db.prepare('UPDATE users SET tracking = ? WHERE id = ?').run(text, user.id);
+  return { ...user, tracking: text };
+}
+
+export function getWaists(db, uid) {
+  return db.prepare('SELECT date, cm FROM waists WHERE user_id = ? ORDER BY date').all(uid);
+}
+
+export function setWaist(db, uid, date, cm) {
+  if (!num(cm, 40, 250)) throw new HttpError(400, 'bad_waist');
+  db.prepare(`INSERT INTO waists (user_id, date, cm) VALUES (?, ?, ?)
+              ON CONFLICT(user_id, date) DO UPDATE SET cm = excluded.cm`).run(uid, date, Math.round(cm * 10) / 10);
+}
+
+export function deleteWaist(db, uid, date) {
+  db.prepare('DELETE FROM waists WHERE user_id = ? AND date = ?').run(uid, date);
+}
+
+export function getPeriods(db, uid) {
+  return db.prepare('SELECT start_date AS start, end_date AS end FROM periods WHERE user_id = ? ORDER BY start_date').all(uid);
+}
+
+/** Adds a period, or sets/changes the end date of the one starting on `start`. */
+export function savePeriod(db, uid, { start, end = null }, today) {
+  const others = getPeriods(db, uid).filter((p) => p.start !== start);
+  const bad = checkPeriod({ start, end }, others, today);
+  if (bad) throw new HttpError(400, bad);
+  db.prepare(`INSERT INTO periods (user_id, start_date, end_date) VALUES (?, ?, ?)
+              ON CONFLICT(user_id, start_date) DO UPDATE SET end_date = excluded.end_date`).run(uid, start, end);
+  return getPeriods(db, uid);
+}
+
+export function deletePeriod(db, uid, start) {
+  db.prepare('DELETE FROM periods WHERE user_id = ? AND start_date = ?').run(uid, start);
+}
+
+export function clearPeriods(db, uid) {
+  db.prepare('DELETE FROM periods WHERE user_id = ?').run(uid);
+}
+
+// -------------------------------------------------------------- daily logs
+
+const DAILY_FIELDS = 'steps, sleep_hours AS sleepHours, sleep_quality AS sleepQuality, water_ml AS waterMl';
+const DAILY_COLS = `date, ${DAILY_FIELDS}`;
+
+export function getDaily(db, uid, date) {
+  const r = db.prepare(`SELECT ${DAILY_FIELDS} FROM daily_logs WHERE user_id = ? AND date = ?`).get(uid, date);
+  return r ? { ...r } : { steps: null, sleepHours: null, sleepQuality: null, waterMl: null };
+}
+
+/** Fields left undefined or null keep what was saved before. */
+export function setDaily(db, uid, date, { steps, sleepHours, sleepQuality, waterMl }) {
   if (steps != null && !(Number.isInteger(steps) && steps >= 0 && steps <= 100000)) throw new HttpError(400, 'bad_steps');
   if (sleepHours != null && !num(sleepHours, 0, 24)) throw new HttpError(400, 'bad_sleep');
-  db.prepare(`INSERT INTO daily_logs (user_id, date, steps, sleep_hours) VALUES (?, ?, ?, ?)
+  if (sleepQuality != null && !SLEEP_QUALITY.includes(sleepQuality)) throw new HttpError(400, 'bad_sleep_quality');
+  if (waterMl != null && !(Number.isInteger(waterMl) && waterMl >= 0 && waterMl <= MAX_WATER_ML)) throw new HttpError(400, 'bad_water');
+  db.prepare(`INSERT INTO daily_logs (user_id, date, steps, sleep_hours, sleep_quality, water_ml) VALUES (?, ?, ?, ?, ?, ?)
               ON CONFLICT(user_id, date) DO UPDATE SET
                 steps = COALESCE(excluded.steps, daily_logs.steps),
-                sleep_hours = COALESCE(excluded.sleep_hours, daily_logs.sleep_hours)`)
-    .run(uid, date, steps ?? null, sleepHours ?? null);
+                sleep_hours = COALESCE(excluded.sleep_hours, daily_logs.sleep_hours),
+                sleep_quality = COALESCE(excluded.sleep_quality, daily_logs.sleep_quality),
+                water_ml = COALESCE(excluded.water_ml, daily_logs.water_ml)`)
+    .run(uid, date, steps ?? null, sleepHours ?? null, sleepQuality ?? null, waterMl ?? null);
   return getDaily(db, uid, date);
 }
 
 export function dailyRange(db, uid, from, to) {
-  return db.prepare(`SELECT date, steps, sleep_hours AS sleepHours FROM daily_logs
-                     WHERE user_id = ? AND date BETWEEN ? AND ? ORDER BY date`).all(uid, from, to);
+  return db.prepare(`SELECT ${DAILY_COLS} FROM daily_logs WHERE user_id = ? AND date BETWEEN ? AND ? ORDER BY date`).all(uid, from, to);
 }
 
 // ----------------------------------------------------------------- training
@@ -318,12 +391,14 @@ export function exportAll(db, user) {
   const uid = user.id;
   return {
     exportedAt: new Date().toISOString(),
-    account: { email: user.email, createdAt: new Date(user.created_at).toISOString(), lang: user.lang, units: user.units },
+    account: { email: user.email, createdAt: new Date(user.created_at).toISOString(), lang: user.lang, units: user.units, tracking: getTracking(user) },
     profile: getProfile(db, uid),
     plan: getPlan(db, uid),
     food: db.prepare('SELECT * FROM food_entries WHERE user_id = ? ORDER BY date, id').all(uid).map(foodRow),
     weights: getWeights(db, uid),
-    daily: db.prepare('SELECT date, steps, sleep_hours AS sleepHours FROM daily_logs WHERE user_id = ? ORDER BY date').all(uid),
+    waists: getWaists(db, uid),
+    periods: getPeriods(db, uid),
+    daily: db.prepare(`SELECT ${DAILY_COLS} FROM daily_logs WHERE user_id = ? ORDER BY date`).all(uid),
     workouts: db.prepare('SELECT * FROM workouts WHERE user_id = ? ORDER BY date').all(uid).map(workoutRow),
   };
 }

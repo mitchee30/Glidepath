@@ -314,7 +314,120 @@ test('weights and daily logs are validated', async () => {
   const ok = await c.post('/daily', { date: TODAY, steps: 9000 });
   assert.equal(ok.data.daily.steps, 9000);
   const more = await c.post('/daily', { date: TODAY, sleepHours: 7.5 });
-  assert.deepEqual(more.data.daily, { steps: 9000, sleepHours: 7.5 });
+  assert.deepEqual(more.data.daily, { steps: 9000, sleepHours: 7.5, sleepQuality: null, waterMl: null });
+  assert.equal((await c.post('/daily', { date: TODAY, sleepQuality: 4 })).data.error, 'bad_sleep_quality');
+  assert.equal((await c.post('/daily', { date: TODAY, waterMl: -250 })).data.error, 'bad_water');
+  assert.equal((await c.post('/daily', { date: TODAY, waterMl: 9000 })).data.error, 'bad_water');
+  const water = await c.post('/daily', { date: TODAY, sleepQuality: 1, waterMl: 750 });
+  assert.deepEqual(water.data.daily, { steps: 9000, sleepHours: 7.5, sleepQuality: 1, waterMl: 750 });
+  // 0 glasses is a real value, not "unchanged"
+  assert.equal((await c.post('/daily', { date: TODAY, waterMl: 0 })).data.daily.waterMl, 0);
+});
+
+// ------------------------------------------------------- optional tracking
+
+test('tracking: everything is off by default and switches on one at a time', async () => {
+  const { c } = await userWithPlan();
+  const me = (await c.get('/me')).data.user;
+  assert.deepEqual(me.tracking, { waist: false, cycle: false, sleepQuality: false, water: false, cycleKind: 'natural', introDismissed: false });
+  let d = (await c.get(`/dashboard?today=${TODAY}`)).data;
+  assert.equal(d.body.waist, null);
+  assert.equal(d.body.cycle, null);
+  assert.equal(d.body.water, null);
+  assert.deepEqual(d.body.bands, []);
+
+  const r = await c.post('/tracking', { waist: true, water: true, extra: 'ignored' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.user.tracking.waist, true);
+  assert.equal(r.data.user.tracking.cycle, false);
+  assert.equal((await c.post('/tracking', { cycle: 'yes' })).data.error, 'bad_tracking');
+  assert.equal((await c.post('/tracking', { cycleKind: 'other' })).data.error, 'bad_tracking');
+  d = (await c.get(`/dashboard?today=${TODAY}`)).data;
+  assert.equal(d.body.waist.due, true);
+  assert.deepEqual(d.body.water, { cups: 8, ml: 2000 });
+  assert.equal((await c.get('/me')).data.user.tracking.water, true);
+});
+
+test('waist: logged on its own, validated, and a shrinking waist overrides a plateau', async () => {
+  const { c } = await userWithPlan();
+  await c.post('/tracking', { waist: true });
+  assert.equal((await c.post('/waist', { date: TODAY, cm: 20 })).data.error, 'bad_waist');
+  // the plan started four weeks ago, and the scale has been flat for three of them...
+  const uid = (await c.get('/me')).data.user.id;
+  appCtx.db.prepare("UPDATE plans SET data = json_set(data, '$.createdAt', ?) WHERE user_id = ?").run(addDays(TODAY, -28), uid);
+  for (let i = 0; i <= 24; i++) await c.post('/weights', { date: addDays(TODAY, -i), kg: 88 });
+  let d = (await c.get(`/dashboard?today=${TODAY}`)).data;
+  assert.equal(d.weight.plateau, true);
+  assert.equal(d.weight.waistDown, null);
+  // ...but the waist went from 96 to 94.5 cm
+  await c.post('/waist', { date: addDays(TODAY, -21), cm: 96 });
+  const r = await c.post('/waist', { date: TODAY, cm: 94.5 });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.waists.length, 2);
+  d = (await c.get(`/dashboard?today=${TODAY}`)).data;
+  assert.equal(d.weight.plateau, false);
+  assert.deepEqual(d.weight.waistDown, { cm: 1.5, weeks: 3 });
+  assert.equal(d.body.waist.latest.cm, 94.5);
+  assert.equal(d.body.waist.ratio, 0.53);
+  assert.equal(d.body.waist.due, false);
+  // with waist tracking off, it's a plain plateau again
+  await c.post('/tracking', { waist: false });
+  assert.equal((await c.get(`/dashboard?today=${TODAY}`)).data.weight.plateau, true);
+  assert.equal((await c.del(`/waist/${TODAY}`)).status, 200);
+  assert.equal((await c.get(`/body?today=${TODAY}`)).data.waists.length, 1);
+});
+
+test('cycle: log start and end, refuse overlaps, and read weight through the premenstrual week', async () => {
+  const { c, plan } = await userWithPlan({ sex: 'female', heightCm: 165, weightKg: 72, goalKg: 64 });
+  await c.post('/tracking', { cycle: true });
+  const start1 = addDays(TODAY, -54);
+  const start2 = addDays(TODAY, -26);
+  assert.equal((await c.post('/periods', { today: TODAY, start: start1, end: addDays(start1, 4) })).status, 201);
+  assert.equal((await c.post('/periods', { today: TODAY, start: start2 })).status, 201);
+  assert.equal((await c.post('/periods', { today: TODAY, start: addDays(start2, 2) })).data.error, 'period_overlap');
+  assert.equal((await c.post('/periods', { today: TODAY, start: start2, end: addDays(start2, 20) })).data.error, 'period_end');
+  const ended = await c.post('/periods', { today: TODAY, start: start2, end: addDays(start2, 5) });
+  assert.deepEqual(ended.data.periods.map((p) => ({ ...p })), [
+    { start: start1, end: addDays(start1, 4) }, { start: start2, end: addDays(start2, 5) },
+  ]);
+
+  // a 28-day cycle: the next period is due in 2 days, so today is in the water-retention window
+  for (let i = 1; i <= 10; i++) await c.post('/weights', { date: addDays(TODAY, -i), kg: 72 });
+  for (let i = 0; i <= 3; i++) await c.post('/weights', { date: addDays(TODAY, -i), kg: 74.5 });
+  let d = (await c.get(`/dashboard?today=${TODAY}`)).data;
+  assert.equal(d.body.cycle.phase, 'luteal');
+  assert.equal(d.body.cycle.daysToNext, 2);
+  assert.equal(d.weight.cycleWater, true);
+  assert.ok(d.weight.trend - plan.targets.basedOnKg >= 1, `trend ${d.weight.trend}`);
+  assert.equal(d.weight.needsRecalc, false, 'no target change for premenstrual water');
+  assert.equal(d.body.bands.length, 2);
+
+  // the same weights outside the window do prompt an update
+  await c.post('/tracking', { cycleKind: 'hormonal' });
+  d = (await c.get(`/dashboard?today=${TODAY}`)).data;
+  assert.equal(d.body.cycle.predicted, false);
+  assert.equal(d.weight.cycleWater, false);
+  assert.equal(d.weight.needsRecalc, true);
+
+  assert.equal((await c.del(`/periods/${start1}`)).status, 200);
+  assert.equal((await c.get(`/body?today=${TODAY}`)).data.periods.length, 1);
+  assert.equal((await c.del('/periods')).status, 200);
+  assert.equal((await c.get(`/body?today=${TODAY}`)).data.periods.length, 0);
+});
+
+test('cycle: no period for three months raises a gentle flag; poor sleep is noticed', async () => {
+  const { c } = await userWithPlan({ sex: 'female', heightCm: 165, weightKg: 72, goalKg: 64 });
+  await c.post('/tracking', { cycle: true, sleepQuality: true });
+  await c.post('/periods', { today: TODAY, start: addDays(TODAY, -95), end: addDays(TODAY, -91) });
+  await c.post('/daily', { date: TODAY, sleepHours: 5 });
+  await c.post('/daily', { date: addDays(TODAY, -1), sleepHours: 7.5, sleepQuality: 1 });
+  const d = (await c.get(`/dashboard?today=${TODAY}`)).data;
+  assert.equal(d.body.cycle.missed, true);
+  assert.equal(d.body.poorSleep, true);
+  const b = (await c.get(`/body?today=${TODAY}`)).data;
+  assert.equal(b.daily.length, 2);
+  assert.equal(b.sleepTarget.hours, 8);
+  assert.deepEqual(b.water, { cups: 7, ml: 1750 });
 });
 
 // --------------------------------------------------------------- training
@@ -357,15 +470,22 @@ test('workout: rest days and bad sets are refused', async () => {
 test('export contains everything; delete needs the password and removes it all', async () => {
   const { c } = await userWithPlan();
   await c.post('/food', { date: TODAY, meal: 'lunch', items: [{ foodId: 'rice', grams: 150 }] });
+  await c.post('/waist', { date: TODAY, cm: 92 });
+  await c.post('/periods', { today: TODAY, start: addDays(TODAY, -3) });
   const ex = await c.get('/export');
   assert.equal(ex.data.food.length, 1);
   assert.equal(ex.data.weights.length, 1);
+  assert.equal(ex.data.waists.length, 1);
+  assert.equal(ex.data.periods.length, 1);
+  assert.equal(ex.data.account.tracking.waist, false);
   assert.ok(ex.data.plan.targets);
   assert.equal((await c.del('/account', { password: 'nope' })).status, 401);
   assert.equal((await c.del('/account', { password: 'longenough1' })).status, 200);
   assert.equal((await c.get('/me')).data.user, null);
-  const left = appCtx.db.prepare('SELECT COUNT(*) AS n FROM food_entries WHERE user_id NOT IN (SELECT id FROM users)').get().n;
-  assert.equal(left, 0);
+  for (const table of ['food_entries', 'waists', 'periods', 'daily_logs']) {
+    const left = appCtx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id NOT IN (SELECT id FROM users)`).get().n;
+    assert.equal(left, 0, table);
+  }
 });
 
 test('demo account: four weeks of data, hidden email, purged after a day', async () => {
@@ -378,6 +498,11 @@ test('demo account: four weeks of data, hidden email, purged after a day', async
   assert.ok(d.weekAvg.days >= 6);
   assert.ok((await c.get('/weights')).data.weights.length >= 15);
   assert.ok((await c.get('/workouts')).data.workouts.length >= 6);
+  assert.equal(r.data.user.tracking.cycle, true);
+  assert.equal(d.body.cycle.phase, 'luteal');
+  assert.equal(d.weight.cycleWater, true);
+  assert.ok(d.body.waist.latest);
+  assert.ok((await c.get(`/body?today=${TODAY}`)).data.periods.length === 2);
   appCtx.db.prepare('UPDATE users SET created_at = 0 WHERE is_demo = 1').run();
   const { purgeDemoUsers } = await import('../../server/demo.js');
   assert.ok(purgeDemoUsers(appCtx.db) >= 1);

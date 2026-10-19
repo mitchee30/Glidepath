@@ -30,7 +30,9 @@ function tooltipLayer(container) {
 
 /**
  * points: [{date, kg, avg}] in display units, sorted by date.
- * opts: { goal, unit, fmtDate(date), labels: { day, avg, goal, empty, table } }
+ * opts: { goal, unit, fmtDate(date), labels: { day, avg, goal, empty, table, band? },
+ *         bands?: [{from, to}] shaded date ranges (logged periods),
+ *         single?: true for one series (avg === kg), e.g. waist }
  */
 export function weightChart(container, points, opts) {
   const H = 210;
@@ -57,9 +59,17 @@ export function weightChart(container, points, opts) {
   const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(p.date).toFixed(1)},${y(p.avg).toFixed(1)}`).join('');
   const lastP = points[points.length - 1];
   const midDate = points[Math.floor(points.length / 2)].date;
+  const halfDay = (W - pad.l - pad.r) / spanDays / 2;
+  const bands = (opts.bands || []).filter((b) => b.to >= first && b.from <= last).map((b) => {
+    const x1 = Math.max(pad.l, x(b.from < first ? first : b.from) - halfDay);
+    const x2 = Math.min(W - pad.r, x(b.to > last ? last : b.to) + halfDay);
+    return raw(`<rect class="band" x="${x1.toFixed(1)}" y="${pad.t}" width="${Math.max(2, x2 - x1).toFixed(1)}" height="${H - pad.t - pad.b}"/>`);
+  });
+  const single = !!opts.single;
 
   container.innerHTML = String(html`
     <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${opts.labels.aria}">
+      ${bands}
       ${ticks.map((v) => raw(`<line class="grid" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/>
         <text class="tick" x="${pad.l - 6}" y="${y(v) + 4}" text-anchor="end">${esc(String(v))}</text>`))}
       ${raw(`<text class="tick" x="${pad.l}" y="${H - 6}">${esc(opts.fmtDate(first))}</text>`)}
@@ -75,13 +85,15 @@ export function weightChart(container, points, opts) {
       <rect class="hit" x="${pad.l}" y="0" width="${W - pad.l - pad.r}" height="${H}" fill="transparent"/>
     </svg>
     <div class="chart-legend">
-      <span><i class="key key-dot"></i>${opts.labels.day}</span>
-      <span><i class="key key-line"></i>${opts.labels.avg}</span>
-      ${showGoal ? html`<span><i class="key key-goal"></i>${opts.labels.goal}</span>` : html`<span class="muted">${opts.labels.goalBelow}</span>`}
+      ${single ? html`<span><i class="key key-line"></i>${opts.labels.day}</span>` : html`
+        <span><i class="key key-dot"></i>${opts.labels.day}</span>
+        <span><i class="key key-line"></i>${opts.labels.avg}</span>`}
+      ${showGoal ? html`<span><i class="key key-goal"></i>${opts.labels.goal}</span>` : opts.labels.goalBelow ? html`<span class="muted">${opts.labels.goalBelow}</span>` : ''}
+      ${bands.length && opts.labels.band ? html`<span><i class="key key-band"></i>${opts.labels.band}</span>` : ''}
     </div>
     <table class="sr-only"><caption>${opts.labels.table}</caption>
-      <tr><th>${opts.labels.date}</th><th>${opts.labels.day}</th><th>${opts.labels.avg}</th></tr>
-      ${points.map((p) => html`<tr><td>${p.date}</td><td>${p.kg}</td><td>${p.avg.toFixed(1)}</td></tr>`)}
+      <tr><th>${opts.labels.date}</th><th>${opts.labels.day}</th>${single ? '' : html`<th>${opts.labels.avg}</th>`}</tr>
+      ${points.map((p) => html`<tr><td>${p.date}</td><td>${p.kg}</td>${single ? '' : html`<td>${p.avg.toFixed(1)}</td>`}</tr>`)}
     </table>`);
 
   const svg = container.querySelector('svg');
@@ -97,7 +109,7 @@ export function weightChart(container, points, opts) {
     cross.setAttribute('x2', px);
     cross.setAttribute('visibility', 'visible');
     tip.hidden = false;
-    tip.innerHTML = String(html`<b>${opts.fmtDate(best.date)}</b><span>${opts.labels.day} ${best.kg} ${opts.unit}</span><span>${opts.labels.avg} ${best.avg.toFixed(1)} ${opts.unit}</span>`);
+    tip.innerHTML = String(html`<b>${opts.fmtDate(best.date)}</b><span>${opts.labels.day} ${best.kg} ${opts.unit}</span>${single ? '' : html`<span>${opts.labels.avg} ${best.avg.toFixed(1)} ${opts.unit}</span>`}`);
     const left = (px / W) * rect.width;
     tip.style.left = `${Math.min(Math.max(left, 70), rect.width - 70)}px`;
     tip.style.top = `${(y(best.kg) / H) * rect.height - 8}px`;
@@ -154,6 +166,55 @@ export function weekBars(container, week, target, opts) {
     const cx = ((pad.l + slot * (i + 0.5)) / W) * rect.width;
     tip.style.left = `${Math.min(Math.max(cx, 60), rect.width - 60)}px`;
     tip.style.top = `${(y(d.kcal) / H) * rect.height - 8}px`;
+  };
+  svg.querySelectorAll('.hit').forEach((r) => {
+    r.addEventListener('pointerenter', show);
+    r.addEventListener('pointerdown', show);
+  });
+  svg.addEventListener('pointerleave', () => { tip.hidden = true; });
+}
+
+/**
+ * Small daily bars (sleep hours, cups of water). items: [{date, value|null, tone?}], oldest first.
+ * opts: { target, fmt(v), dayLabel(date, isLast), fmtDate(date), labels: { aria, target, none } }
+ * tone picks a colour class: '' (default), 'soft' or 'warn'.
+ */
+export function barChart(container, items, opts) {
+  const H = 130;
+  const pad = { l: 8, r: 8, t: 16, b: 22 };
+  const max = Math.max(opts.target * 1.3, ...items.map((d) => d.value || 0), 1);
+  const slot = (W - pad.l - pad.r) / items.length;
+  const bw = Math.min(16, slot * 0.6);
+  const y = (v) => pad.t + (1 - v / max) * (H - pad.t - pad.b);
+  const base = H - pad.b;
+  container.innerHTML = String(html`
+    <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${opts.labels.aria}">
+      ${raw(`<line class="grid" x1="${pad.l}" x2="${W - pad.r}" y1="${base}" y2="${base}"/>`)}
+      ${items.map((d, i) => {
+        const cx = pad.l + slot * (i + 0.5);
+        const top = d.value ? y(d.value) : base;
+        const h = base - top;
+        return raw(`${h > 0 ? `<rect class="bar${d.tone ? ` bar-${d.tone}` : ''}" x="${(cx - bw / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="${Math.min(3, h / 2).toFixed(1)}"/>` : ''}
+          <text class="tick" x="${cx.toFixed(1)}" y="${H - 6}" text-anchor="middle">${esc(opts.dayLabel(d.date, i === items.length - 1))}</text>
+          <rect class="hit" data-i="${i}" x="${(cx - slot / 2).toFixed(1)}" y="0" width="${slot.toFixed(1)}" height="${H}" fill="transparent"/>`);
+      })}
+      ${raw(`<line class="target-line" x1="${pad.l}" x2="${W - pad.r}" y1="${y(opts.target)}" y2="${y(opts.target)}"/>
+        <text class="tick" x="${W - pad.r}" y="${y(opts.target) - 4}" text-anchor="end">${esc(opts.labels.target)}</text>`)}
+    </svg>
+    <table class="sr-only"><caption>${opts.labels.aria}</caption>
+      ${items.map((d) => html`<tr><td>${d.date}</td><td>${d.value == null ? opts.labels.none : opts.fmt(d.value)}</td></tr>`)}
+    </table>`);
+  const svg = container.querySelector('svg');
+  const tip = tooltipLayer(container);
+  const show = (e) => {
+    const i = Number(e.target.dataset.i);
+    const d = items[i];
+    const rect = svg.getBoundingClientRect();
+    tip.hidden = false;
+    tip.innerHTML = String(html`<b>${opts.fmtDate(d.date)}</b><span>${d.value == null ? opts.labels.none : opts.fmt(d.value, d)}</span>`);
+    const cx = ((pad.l + slot * (i + 0.5)) / W) * rect.width;
+    tip.style.left = `${Math.min(Math.max(cx, 60), rect.width - 60)}px`;
+    tip.style.top = `${((d.value ? y(d.value) : base) / H) * rect.height - 8}px`;
   };
   svg.querySelectorAll('.hit').forEach((r) => {
     r.addEventListener('pointerenter', show);
