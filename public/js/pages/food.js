@@ -141,6 +141,11 @@ function openEntrySheet(entry, onSaved) {
 
 // ------------------------------------------------------------- photo flow
 
+// Why photos aren't really recognised: no API key on the server, or a demo account.
+function demoReason() {
+  return t(state.ai?.enabled ? 'photo.demoWhyAccount' : 'photo.demoWhyKey');
+}
+
 export function openPhotoSheet({ date, meal, onSaved }) {
   let items = [];
   let result = null;
@@ -184,7 +189,7 @@ export function openPhotoSheet({ date, meal, onSaved }) {
         <label class="btn btn-block">${icon('image')}<span>${t('photo.choose')}</span>
           <input type="file" accept="image/*" data-file hidden></label>
         <p class="hint">${t('photo.tip')}</p>
-        ${state.ai?.demo ? html`<p class="notice notice-demo">${t('photo.demoNote')}</p>` : ''}
+        ${state.ai?.demo ? html`<div class="notice notice-demo"><p>${demoReason()}</p></div>` : ''}
       </div>`,
     loading: () => html`
       <div class="photo-loading">
@@ -199,11 +204,13 @@ export function openPhotoSheet({ date, meal, onSaved }) {
       </div>`,
     result: () => html`
       <form class="stack" novalidate>
+        ${result.demo ? html`<div class="notice notice-demo" role="note">
+          <p><b>${t('photo.demoTitle')}</b></p><p>${demoReason()}</p></div>` : ''}
         <div class="photo-result-head">
           ${imageUrl ? html`<img class="photo-thumb" src="${imageUrl}" alt="">` : ''}
           <div>
             ${result.demo ? html`<em class="tag tag-demo">${t('photo.demoTag')}</em>` : ''}
-            <p class="hint">${result.note || t('photo.checkHint')}</p>
+            <p class="hint">${result.demo ? t('photo.checkHint') : result.note || t('photo.checkHint')}</p>
           </div>
         </div>
         ${items.length ? html`<ul class="pitems">${items.map(itemRow)}</ul>` : html`<p class="muted">${t('photo.allRemoved')}</p>`}
