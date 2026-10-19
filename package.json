@@ -1,0 +1,23 @@
+{
+  "name": "glidepath",
+  "version": "0.1.0",
+  "description": "Glidepath — a safe, science-based fat-loss coach (web v1)",
+  "main": "server/index.js",
+  "scripts": {
+    "test": "node --test test/unit/*.test.js test/api/*.test.js",
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "e2e": "node test/e2e/run.mjs"
+  },
+  "dependencies": {
+    "express": "^4.22.3"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "private": true,
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}

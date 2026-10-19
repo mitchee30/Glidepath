@@ -1,0 +1,21 @@
+# Render Blueprint: New > Blueprint > pick this repo.
+# Free plan sleeps after 15 minutes and its disk is wiped on every deploy/restart,
+# so the SQLite database (accounts and logs) resets. For real users use a paid
+# instance with a persistent disk and point DB_PATH at it (e.g. /var/data/glidepath.db).
+services:
+  - type: web
+    name: glidepath
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: RECOGNIZE_DAILY_LIMIT
+        value: "30"
+      - key: OPENAI_API_KEY
+        sync: false
