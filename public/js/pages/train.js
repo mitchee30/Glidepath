@@ -3,7 +3,9 @@ import { t, fmtDate, exName, exCues, weekdayShort } from '../i18n.js';
 import { get, post, del } from '../api.js';
 import { today, route } from '../app.js';
 import { addDays, weekday } from '../core/dates.js';
-import { EXERCISES } from '../core/training.js';
+import { EXERCISES, demoImages } from '../core/training.js';
+import { isCountable } from '../core/reps.js';
+import { openCounter } from '../camera.js';
 
 const DRAFT = (date) => `glidepath.session.${date}`;
 let restTimer = null;
@@ -37,19 +39,26 @@ function changeText(c) {
 
 function exerciseCard(s, i, session) {
   const ex = EXERCISES[s.exerciseId];
+  const demo = demoImages(s.exerciseId);
+  const name = exName(s.exerciseId);
   return html`
     <li class="exercise" data-slot="${s.slot}">
       <div class="ex-head">
         <span class="ex-num">${i + 1}</span>
-        <div>
-          <h3>${exName(s.exerciseId)}</h3>
+        <div class="ex-text">
+          <h3>${name}</h3>
           <p class="ex-rx">${prescription(s)}${ex.type !== 'cardio' ? html`<span class="muted">${t('train.rest', { secs: s.rest })}</span>` : ''}</p>
           ${weightHint(s) ? html`<p class="hint">${weightHint(s)}</p>` : ''}
+          ${isCountable(s.exerciseId) && !session ? html`<p class="cam-hint">${icon('camera', 14)}<span>${t('train.camAvailable')}</span></p>` : ''}
         </div>
+        ${demo.length ? html`<figure class="demo${demo.length > 1 ? ' demo-anim' : ''}" aria-hidden="true">
+          ${demo.map((src) => html`<img src="${src}" alt="" width="480" height="320" loading="lazy" decoding="async">`)}</figure>` : ''}
       </div>
       <details class="cues"><summary>${t('train.cues')}</summary>
+        ${demo.length ? html`<div class="demo-large">${demo.map((src, k) => html`<img src="${src}" alt="${t('train.demoAlt', { ex: name, n: k + 1, total: demo.length })}" width="480" height="320" loading="lazy" decoding="async">`)}</div>` : ''}
         <ul>${exCues(s.exerciseId).map((c) => html`<li>${c}</li>`)}</ul></details>
       ${session ? html`<ol class="sets">${Array.from({ length: s.sets }, (_, k) => setRow(s, k, session))}</ol>` : ''}
+      ${session && isCountable(s.exerciseId) ? html`<button type="button" class="btn btn-small cam-btn" data-cam>${icon('camera', 16)}<span></span></button>` : ''}
     </li>`;
 }
 
@@ -162,6 +171,7 @@ export async function render(root, params, alive) {
           </header>
           <p class="hint">${t('train.warmup')}</p>
           <ol class="exercises">${day.slots.map((s, i) => exerciseCard(s, i, session))}</ol>
+          ${day.slots.some((s) => demoImages(s.exerciseId).length) ? html`<p class="fineprint">${t('train.demoCredit')}</p>` : ''}
           ${session ? html`<button class="btn btn-primary btn-block" type="button" data-finish>${t('train.finish')}</button>
             <button class="btn-link" type="button" data-cancel>${t('train.cancelSession')}</button>`
           : html`<button class="btn btn-primary btn-block" type="button" data-start>${t('train.start')}</button>`}
@@ -181,7 +191,19 @@ export async function render(root, params, alive) {
         </section>` : ''}
     </section>`;
 
-  const draw = () => mount(root, view());
+  // the camera button always targets the first set that isn't done yet
+  const refreshCam = () => {
+    for (const btn of $$('[data-cam]', root)) {
+      const sets = $$('.set', btn.closest('.exercise'));
+      const next = sets.findIndex((li) => !li.classList.contains('set-done'));
+      btn.hidden = next < 0;
+      if (next >= 0) btn.querySelector('span').textContent = t('train.camCount', { n: next + 1 });
+    }
+  };
+  const draw = () => {
+    mount(root, view());
+    refreshCam();
+  };
   draw();
 
   on(root, 'click', '[data-start]', () => {
@@ -196,6 +218,16 @@ export async function render(root, params, alive) {
     stopRest();
     draw();
   });
+  const markDone = (li) => {
+    const rec = {};
+    $$('input', li).forEach((inp) => { if (inp.value !== '') rec[inp.name] = Number(inp.value); });
+    session.done[li.dataset.key] = rec;
+    li.classList.add('set-done');
+    li.querySelector('[data-done]').setAttribute('aria-pressed', 'true');
+    saveSession(date, session);
+    refreshCam();
+    startRest(Number(li.dataset.rest));
+  };
   on(root, 'click', '[data-done]', (e, b) => {
     const li = b.closest('.set');
     const key = li.dataset.key;
@@ -203,15 +235,28 @@ export async function render(root, params, alive) {
       delete session.done[key];
       li.classList.remove('set-done');
       b.setAttribute('aria-pressed', 'false');
+      saveSession(date, session);
+      refreshCam();
     } else {
-      const rec = {};
-      $$('input', li).forEach((inp) => { if (inp.value !== '') rec[inp.name] = Number(inp.value); });
-      session.done[key] = rec;
-      li.classList.add('set-done');
-      b.setAttribute('aria-pressed', 'true');
-      startRest(Number(li.dataset.rest));
+      markDone(li);
     }
-    saveSession(date, session);
+  });
+  on(root, 'click', '[data-cam]', (e, b) => {
+    const exLi = b.closest('.exercise');
+    const li = $$('.set', exLi).find((x) => !x.classList.contains('set-done'));
+    if (!li) return;
+    const slot = day.slots.find((x) => x.slot === exLi.dataset.slot);
+    const repsInput = li.querySelector('input[name=reps]');
+    stopRest();
+    openCounter({
+      exerciseId: slot.exerciseId,
+      target: Number(repsInput?.value) || slot.reps,
+      onDone: (count) => {
+        if (repsInput) repsInput.value = String(count);
+        markDone(li);
+        toast(t('train.camSaved', { n: count }));
+      },
+    });
   });
   on(root, 'change', '.set input', (e, inp) => {
     const li = inp.closest('.set');

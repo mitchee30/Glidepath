@@ -141,6 +141,7 @@ export function createApi(db, opts) {
       profile: store.getProfile(db, req.user.id),
       plan: store.getPlan(db, req.user.id),
       ai: { enabled: !!opts.openaiKey, demo: !opts.openaiKey || (!!req.user.is_demo && !opts.demoUsesAi) },
+      config: { poseModelUrl: opts.poseModelUrl },
     });
   }));
 

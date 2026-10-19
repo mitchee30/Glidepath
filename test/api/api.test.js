@@ -390,3 +390,33 @@ test('static files carry security headers', async () => {
   assert.match(res.headers.get('content-security-policy'), /script-src 'self'/);
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
 });
+
+test('pose detection: MediaPipe files are served, CSP allows WebAssembly and the model host', async () => {
+  const bundle = await fetch(base + '/vendor/mediapipe/vision_bundle.mjs');
+  assert.equal(bundle.status, 200);
+  assert.match(bundle.headers.get('content-type'), /javascript/);
+  const wasm = await fetch(base + '/vendor/mediapipe/wasm/vision_wasm_internal.wasm', { method: 'HEAD' });
+  assert.equal(wasm.status, 200);
+  const csp = (await fetch(base + '/')).headers.get('content-security-policy');
+  assert.match(csp, /script-src 'self' 'wasm-unsafe-eval'/);
+  assert.match(csp, /connect-src 'self' https:\/\/storage\.googleapis\.com/);
+  const { c } = await newUser();
+  const me = await c.get('/me');
+  assert.match(me.data.config.poseModelUrl, /^https:\/\/storage\.googleapis\.com\/.*pose_landmarker_lite\.task$/);
+});
+
+test('pose detection: POSE_MODEL_FILE is served locally and the CSP stays same-origin', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gp-')), 'model.task');
+  fs.writeFileSync(file, 'not really a model');
+  const local = createApp({ dbPath: ':memory:', openaiKey: null, poseModelFile: file, log: () => {} });
+  const srv = local.app.listen(0);
+  const url = `http://127.0.0.1:${srv.address().port}`;
+  const res = await fetch(url + '/vendor/pose_landmarker.task');
+  assert.equal(await res.text(), 'not really a model');
+  assert.match(res.headers.get('content-security-policy'), /connect-src 'self';/);
+  srv.close();
+  local.close();
+});

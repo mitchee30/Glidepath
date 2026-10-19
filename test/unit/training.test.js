@@ -129,3 +129,15 @@ test('resolveDay merges saved progress into the plan', () => {
   assert.equal(push.reps, 9);
   assert.equal(resolveDay(plan, 1, {}), null);
 });
+
+test('demo photos: every mapped exercise exists and every image file is on disk', async () => {
+  const { DEMOS, demoImages } = await import('../../public/js/core/training.js');
+  const fs = await import('node:fs');
+  for (const id of Object.keys(DEMOS)) {
+    assert.ok(EXERCISES[id], id);
+    const imgs = demoImages(id);
+    assert.ok(imgs.length >= 1, id);
+    for (const src of imgs) assert.ok(fs.existsSync(new URL(`../../public${src}`, import.meta.url)), src);
+  }
+  assert.deepEqual(demoImages('wall_pushup'), []);
+});

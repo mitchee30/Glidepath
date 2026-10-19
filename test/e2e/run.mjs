@@ -347,6 +347,85 @@ await step('logged-out visitors are sent to the welcome page', async () => {
   await page.context().close();
 });
 
+// ------------------------------------------------- camera rep counting (real MediaPipe)
+// Chromium's fake camera plays two squat photos back and forth; the real pose model
+// runs in the page and should count the squats. Needs the pose model: set
+// POSE_MODEL_FILE to a local copy, otherwise it is downloaded from Google once.
+
+async function poseModel() {
+  if (process.env.POSE_MODEL_FILE) return process.env.POSE_MODEL_FILE;
+  const file = path.join(os.tmpdir(), 'glidepath-pose_landmarker_lite.task');
+  if (fs.existsSync(file)) return file;
+  try {
+    const { DEFAULT_POSE_MODEL_URL } = await import('../../server/index.js');
+    const res = await fetch(DEFAULT_POSE_MODEL_URL, { signal: AbortSignal.timeout(30000) });
+    if (!res.ok) return null;
+    fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+    return file;
+  } catch {
+    return null;
+  }
+}
+
+const modelFile = await poseModel();
+if (!modelFile) {
+  results.push('skip camera rep counting (no pose model: set POSE_MODEL_FILE or allow downloads from storage.googleapis.com)');
+} else {
+  await step('camera: counts squats from video with the real pose model, then logs the set', async () => {
+    // 30 fps MJPEG: 0.9 s standing, 0.9 s at the bottom, repeated
+    const up = fs.readFileSync(path.join(HERE, '../fixtures/goblet-0.jpg'));
+    const down = fs.readFileSync(path.join(HERE, '../fixtures/goblet-1.jpg'));
+    const frames = [];
+    for (let c = 0; c < 8; c++) frames.push(...Array(27).fill(up), ...Array(27).fill(down));
+    const video = path.join(tmp, 'squats.mjpeg');
+    fs.writeFileSync(video, Buffer.concat(frames));
+
+    const cam = createApp({ dbPath: path.join(tmp, 'cam.db'), openaiKey: null, demoLimit: 1000, poseModelFile: modelFile, log: () => {} });
+    const camServer = cam.app.listen(0);
+    const CAM = `http://127.0.0.1:${camServer.address().port}`;
+    const camBrowser = await chromium.launch({
+      args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-video-capture=${video}`],
+    });
+    try {
+      const ctx = await camBrowser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'zh-CN', timezoneId: 'America/Toronto' });
+      await ctx.grantPermissions(['camera'], { origin: CAM });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(CAM);
+      await page.click('[data-demo]');
+      await page.waitForSelector('.budget');
+      await page.goto(`${CAM}/#/train/0`);
+      await page.waitForSelector('.exercise');
+      assert.ok(await page.$('.exercise .demo img'), 'demo photos shown');
+      if (await page.$('[data-start]')) await page.click('[data-start]');
+      const squat = page.locator('.exercise[data-slot="squat"]');
+      assert.equal(await squat.locator('h3').textContent(), '高脚杯深蹲');
+      assert.equal(await squat.locator('[data-cam]').textContent(), '用摄像头数第 1 组');
+      await squat.locator('[data-cam]').click();
+      await page.waitForSelector('dialog.sheet .cam-stage video');
+      await page.waitForFunction(() => Number(document.querySelector('[data-count]')?.textContent) >= 3, null, { timeout: 60000 });
+      await shot(page, 'camera-counting');
+      const status = await page.textContent('[data-status]');
+      assert.doesNotMatch(status, /加载|没加载/, status);
+      // the count can keep going while we click, so read what was saved from the button label
+      const label = await page.textContent('dialog.sheet [data-save]');
+      await page.click('dialog.sheet [data-save]');
+      await page.waitForSelector('dialog.sheet', { state: 'detached' });
+      const first = squat.locator('.set').first();
+      const saved = Number(await first.locator('input[name=reps]').inputValue());
+      assert.ok(saved >= 3 && saved <= 8, `saved ${saved}, button said "${label}"`);
+      assert.match(await first.getAttribute('class'), /set-done/);
+      assert.equal(await squat.locator('[data-cam]').textContent(), '用摄像头数第 2 组');
+      assert.deepEqual(errors, []);
+    } finally {
+      await camBrowser.close();
+      camServer.close();
+      cam.close();
+    }
+  });
+}
+
 await browser.close();
 server.close();
 close();

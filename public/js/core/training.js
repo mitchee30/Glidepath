@@ -86,6 +86,39 @@ export const EXERCISES = {
     cues: { zh: ['能说话但唱不了歌的速度', '室外、跑步机都可以'], en: ['You can talk but not sing', 'Outdoors or on a treadmill'] } },
 };
 
+// Demo photos from free-exercise-db (public domain, github.com/yuhonas/free-exercise-db),
+// stored in public/img/exercises/<entry>/<frame>.jpg. Only exercises with a close
+// match are listed; the rest show cues only.
+export const DEMOS = {
+  box_squat: { entry: 'Sit_Squats', frames: [0, 1] },
+  bw_squat: { entry: 'Bodyweight_Squat', frames: [0, 1] },
+  pause_squat: { entry: 'Bodyweight_Squat', frames: [0, 1] },
+  goblet_squat: { entry: 'Goblet_Squat', frames: [0, 1] },
+  leg_press: { entry: 'Leg_Press', frames: [0, 1] },
+  glute_bridge: { entry: 'Butt_Lift_Bridge', frames: [0, 1] },
+  single_leg_bridge: { entry: 'Single_Leg_Glute_Bridge', frames: [0, 1] },
+  db_rdl: { entry: 'Stiff-Legged_Dumbbell_Deadlift', frames: [0, 1] },
+  reverse_lunge: { entry: 'Dumbbell_Rear_Lunge', frames: [0, 1] },
+  db_split_squat: { entry: 'Split_Squat_with_Dumbbells', frames: [0, 1] },
+  incline_pushup: { entry: 'Incline_Push-Up', frames: [1, 0] },
+  pushup: { entry: 'Pushups', frames: [0, 1] },
+  db_floor_press: { entry: 'Dumbbell_Floor_Press', frames: [0, 1] },
+  db_bench_press: { entry: 'Dumbbell_Bench_Press', frames: [0, 1] },
+  machine_chest_press: { entry: 'Machine_Bench_Press', frames: [0, 1] },
+  db_shoulder_press: { entry: 'Dumbbell_Shoulder_Press', frames: [0, 1] },
+  db_row: { entry: 'One-Arm_Dumbbell_Row', frames: [0, 1] },
+  lat_pulldown: { entry: 'Wide-Grip_Lat_Pulldown', frames: [0, 1] },
+  cable_row: { entry: 'Seated_Cable_Rows', frames: [0, 1] },
+  plank: { entry: 'Plank', frames: [1] },
+  dead_bug: { entry: 'Dead_Bug', frames: [0, 1] },
+};
+
+/** Image URLs for an exercise's demo, in movement order (empty if there is none). */
+export function demoImages(id) {
+  const d = DEMOS[id];
+  return d ? d.frames.map((f) => `/img/exercises/${d.entry}/${f}.jpg`) : [];
+}
+
 // Slots: each day template is a list of slots in priority order; each slot
 // lists candidate exercises best-first. Progress is tracked per slot.
 export const SLOTS = {

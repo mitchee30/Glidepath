@@ -24,6 +24,8 @@ A fat-loss coach that won't let you crash-diet. If your goal is too aggressive, 
 - **Today**: calories left (on a ruler), protein progress, today's workout, weight, a steps and sleep check-in, and your 7-day average.
 - **Weight trend**: daily dots, a 7-day average line and a goal line. When your trend moves about 1 kg, you're prompted to update your calorie target. Plateaus are explained. Once you reach your goal, you move to maintenance: calories rise by 150 kcal a week up to your maintenance level.
 - **Training plan**: built from 28 exercises around your experience, equipment (home with nothing, home with dumbbells, or a gym), training days, session length and injuries. Each exercise has sets, reps, rest time and form cues. During a workout you tick off each set and a rest timer starts. Afterwards the plan progresses automatically (more reps, more weight, or a harder variation), and you can undo the most recent workout.
+- **Demo photos**: 21 of the 28 exercises show start and end photos from [free-exercise-db](https://github.com/yuhonas/free-exercise-db) (public domain), alternating so you can see the movement.
+- **Camera rep counting** for squats (bodyweight, pause, goblet, box) and push-ups (standard, knee, incline, wall): point your phone at yourself and it counts each full rep, says the count out loud, and when you save it fills in that set. Half reps don't count and get a "go deeper" cue; push-ups also get "don't let your hips sag" / "hips too high". When your joints are hard to see it keeps counting but stops judging form. Pose detection is [MediaPipe](https://github.com/google-ai-edge/mediapipe) running in the browser: video never leaves the device.
 - **Safety signals**: three days in a row well under your safe minimum, or losing more than 1.5% of body weight a week after the first three weeks, triggers a gentle note and help resources.
 - **"Where these numbers come from"**: the Me tab explains resting metabolism, daily burn, calorie target, safe minimum, protein, steps and sleep, one by one.
 - **Also**: English and Chinese, kg / jin (斤) / lb, dark mode, PWA, export all your data, delete your account, and a demo account (four weeks of sample data, deleted after 24 hours).
@@ -68,6 +70,8 @@ OPENAI_API_KEY=sk-... npm start
 | `DEMO_USES_AI` | `0` | Set to `1` to let demo accounts use the real model (costs money on a public site) |
 | `DB_PATH` | `./data/glidepath.db` | Where the SQLite database lives |
 | `TRUST_PROXY` | `0` | Set to `1` behind a proxy such as Render |
+| `POSE_MODEL_URL` | Google's hosted Pose Landmarker (lite) | Where the browser downloads the pose model (about 6 MB) |
+| `POSE_MODEL_FILE` | empty | Path to a local copy of the model; the server then serves it itself (useful where Google is blocked) |
 | `PORT` | `3000` | |
 
 Set a monthly spending limit in your OpenAI account. Photos are shrunk in the browser to 1024 px on the long side before upload, and discarded after recognition.
@@ -75,11 +79,13 @@ Set a monthly spending limit in your OpenAI account. Photos are shrunk in the br
 ### Tests
 
 ```bash
-npm test                          # 69 unit + API tests (math, safety rules, progression, account isolation, the vision-model call…)
+npm test                          # 87 unit + API tests (math, safety rules, progression, rep counting, account isolation, the vision-model call…)
 npx playwright install chromium   # once, before the first browser test run
-npm run e2e                       # 14 end-to-end browser tests at phone size (signup, photo, search, weight, training, language, screening, dark mode…)
+npm run e2e                       # 15 end-to-end browser tests at phone size (signup, photo, search, weight, training, camera counting, language, screening, dark mode…)
 SHOTS=shots npm run e2e           # also save a screenshot of each step to shots/
 ```
+
+The rep-counting tests use real MediaPipe output: `test/fixtures/pose-frames.json` holds the landmarks the model found on the demo photos, so the unit tests check the thresholds against what the model actually sees. The camera end-to-end test plays squat photos through Chromium's fake camera and runs the real model in the page; it downloads the model from Google once (or uses `POSE_MODEL_FILE`) and is skipped if neither works.
 
 ### Deploy (Render)
 
@@ -100,8 +106,11 @@ server/
   db.js           SQLite schema (built-in node:sqlite) and transactions
 public/
   js/core/        logic shared by browser and server: plan (plans and safety rules), nutrition,
-                  foods (food table), trend (trend and safety signals), training (exercises and progression)
+                  foods (food table), trend (trend and safety signals), training (exercises and progression),
+                  reps (camera rep counting: joint angles, rep state machine, form cues)
+  js/camera.js    the camera counter screen; js/pose.js loads MediaPipe
   js/pages/       one file per screen
+  img/exercises/  demo photos from free-exercise-db
   js/i18n.js      English and Chinese strings
   js/charts.js    weight trend and weekly intake charts (hand-written SVG)
   css/app.css
@@ -113,6 +122,7 @@ test/unit, test/api, test/e2e
 - Passwords are hashed with salted scrypt; only a hash of each session token is stored.
 - Every write request needs a custom header, which blocks cross-site request forgery. Cookies are HttpOnly and SameSite=Lax.
 - Each account can only read and write its own data (covered by API tests).
+- Camera counting runs entirely in the browser. Video frames are never uploaded or stored.
 - "Export my data" downloads every record as JSON; "Delete account" removes the account and all its records.
 - The database isn't encrypted at the application level. In production, keep it on an encrypted disk (most cloud disks are encrypted by default).
 
@@ -126,8 +136,13 @@ Eating-disorder help lines are listed in `RESOURCES` in `public/js/pages/shared.
 
 ### Next (v2 / v3)
 
-- v2: camera rep counting and form cues (MediaPipe Pose; squats, push-ups, planks, lunges and jumping jacks first), a daily science card, weekly summaries, exercise demo animations, barcode scanning, voice logging
+- v2 (done so far): exercise demo photos; camera counting for squats and push-ups
+- v2 (still to do): camera counting for lunges, jumping jacks and plank holds; a daily science card; weekly summaries; a larger food database (USDA FoodData Central); barcode scanning (Open Food Facts); voice logging
 - v3: an iOS app (Expo / React Native) with HealthKit (sleep, steps, active energy) and AlarmKit; adaptive calories that work out your real daily burn from what you eat and how your weight changes
+
+### License
+
+MIT, see `LICENSE`. Third-party work (free-exercise-db photos, MediaPipe, the Archivo font) is listed in `THIRD_PARTY_NOTICES.md`.
 
 ### Font
 
@@ -151,6 +166,8 @@ Numbers and Latin text use [Archivo](https://github.com/Omnibus-Type/Archivo) (S
 - **今天**：还能吃多少（刻度尺）、蛋白质进度、今日训练、体重、步数和睡眠打卡、最近 7 天平均。
 - **体重趋势**：每天的点 + 7 天平均线 + 目标线；体重变化约 1 kg 时提醒按新体重更新热量目标；平台期解释；到达目标后进入维持期（热量每周加 150 大卡，直到维持水平）。
 - **训练计划**：按经验、器材（家里无器材 / 有哑铃 / 健身房）、每周哪几天、每次多久、伤病，从 28 个动作里生成；每个动作有组数、次数、休息时间和动作要点；训练时逐组打勾、自动组间休息倒计时；完成后按规则自动加量（加次数 / 加重量 / 换更难的变式），可以撤销最近一次。
+- **动作示范图**：28 个动作里有 21 个配了起始和结束两张照片，来自 [free-exercise-db](https://github.com/yuhonas/free-exercise-db)（公有领域），两张交替显示，能看出动作怎么做。
+- **摄像头计数**：深蹲（徒手、停顿、高脚杯、坐箱）和俯卧撑（标准、跪姿、上斜、扶墙）可以用摄像头数。手机对着自己，每做完整一次就数一下并念出来，保存后自动填进这一组。蹲得不够低的不算，会提示“再蹲低一点”；俯卧撑还会提示“臀部别塌”“臀部别翘太高”。关节看不太清时只计数、不判动作对错。姿态识别用的是 [MediaPipe](https://github.com/google-ai-edge/mediapipe)，在浏览器里本地运行，画面不会离开手机。
 - **安全信号**：连续 3 天吃得远低于安全下限、或 3 周后每周减重超过体重 1.5% → 温和提示并给求助资源。
 - **“这些数字怎么来的”**：在“我的”里逐条解释基础代谢、总消耗、热量目标、安全下限、蛋白质、步数和睡眠。
 - **其他**：中英双语、单位支持公斤 / 斤 / 磅、深色模式、PWA、导出全部数据、删除账号、演示账号（4 周示例数据，24 小时后自动删除）。
@@ -195,6 +212,8 @@ OPENAI_API_KEY=sk-... npm start
 | `DEMO_USES_AI` | `0` | 设成 `1` 演示账号也会调用真实模型（公开网站上会花钱） |
 | `DB_PATH` | `./data/glidepath.db` | SQLite 数据库位置 |
 | `TRUST_PROXY` | `0` | 部署在 Render 等代理后面时设成 `1` |
+| `POSE_MODEL_URL` | Google 托管的 Pose Landmarker（lite） | 浏览器从哪里下载姿态模型（约 6 MB） |
+| `POSE_MODEL_FILE` | 空 | 本地模型文件的路径，填了以后由服务器自己提供（Google 打不开的地区用这个） |
 | `PORT` | `3000` | |
 
 建议在 OpenAI 后台设置每月花费上限。照片在浏览器里先缩小到最长边 1024 像素再上传，识别完就丢掉，不保存。
@@ -202,11 +221,13 @@ OPENAI_API_KEY=sk-... npm start
 ### 测试
 
 ```bash
-npm test                          # 69 个单元 + 接口测试（计算、安全规则、训练进阶、账号隔离、拍照识别的模型调用等）
+npm test                          # 87 个单元 + 接口测试（计算、安全规则、训练进阶、动作计数、账号隔离、拍照识别的模型调用等）
 npx playwright install chromium   # 第一次跑端到端测试前装一次
-npm run e2e                       # 14 个浏览器端到端测试，手机尺寸（注册建档、拍照、搜索、体重、训练、切换语言、筛查、深色模式…）
+npm run e2e                       # 15 个浏览器端到端测试，手机尺寸（注册建档、拍照、搜索、体重、训练、摄像头计数、切换语言、筛查、深色模式…）
 SHOTS=shots npm run e2e           # 顺便把每一步截图存到 shots/
 ```
+
+动作计数的测试用的是 MediaPipe 的真实输出：`test/fixtures/pose-frames.json` 存的是模型在示范照片上识别出的关节点，单元测试拿它检查阈值是否符合模型实际看到的角度。摄像头的端到端测试用 Chromium 的假摄像头播放深蹲照片，在页面里跑真实模型；它会从 Google 下载一次模型（或者用 `POSE_MODEL_FILE`），两样都不行就跳过。
 
 ### 部署（Render）
 
@@ -227,8 +248,10 @@ server/
   db.js           SQLite 表结构（Node 自带的 node:sqlite）和事务
 public/
   js/core/        浏览器和服务器共用的逻辑：plan（计划和安全规则）、nutrition、foods（食物表）、
-                  trend（趋势和安全信号）、training（动作库和进阶）
+                  trend（趋势和安全信号）、training（动作库和进阶）、reps（摄像头计数：关节角度、计数状态机、动作提示）
+  js/camera.js    摄像头计数页面；js/pose.js 负责加载 MediaPipe
   js/pages/       各个页面
+  img/exercises/  free-exercise-db 的示范图
   js/i18n.js      中英文案
   js/charts.js    体重趋势图、每周摄入柱状图（手写 SVG）
   css/app.css
@@ -240,6 +263,7 @@ test/unit, test/api, test/e2e
 - 密码用 scrypt 加盐哈希；登录会话的 token 只存哈希值。
 - 所有写操作都要带自定义请求头，挡住跨站请求伪造；Cookie 是 HttpOnly + SameSite=Lax。
 - 每个账号只能读写自己的数据（有接口测试覆盖）。
+- 摄像头计数完全在浏览器里完成，画面不会上传，也不会保存。
 - “导出我的数据”下载全部记录（JSON），“删除账号”会删掉账号和所有记录。
 - 数据库本身没有在应用层加密：生产环境请把数据库放在加密的磁盘上（大部分云主机的磁盘默认加密）。
 
@@ -253,8 +277,13 @@ test/unit, test/api, test/e2e
 
 ### 之后（v2 / v3）
 
-- v2：摄像头动作计数和提示（MediaPipe Pose，先做深蹲、俯卧撑、平板支撑、弓步、开合跳）、每日科学知识卡片、每周总结、动作示范动画、条形码扫描、语音记录
+- v2（已完成）：动作示范图；深蹲和俯卧撑的摄像头计数
+- v2（还没做）：弓步、开合跳的摄像头计数和平板支撑计时；每日科学知识卡片；每周总结；更大的食物库（USDA FoodData Central）；条形码扫描（Open Food Facts）；语音记录
 - v3：iOS app（Expo / React Native）接 HealthKit（睡眠、步数、活动能量）和 AlarmKit；用实际摄入和体重变化反推真实消耗的自适应热量
+
+### 许可证
+
+MIT，见 `LICENSE`。用到的第三方内容（free-exercise-db 示范图、MediaPipe、Archivo 字体）写在 `THIRD_PARTY_NOTICES.md` 里。
 
 ### 字体
 

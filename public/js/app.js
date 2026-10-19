@@ -10,7 +10,7 @@ import * as train from './pages/train.js';
 import * as weight from './pages/weight.js';
 import * as me from './pages/me.js';
 
-export const state = { user: null, profile: null, plan: null, ai: { enabled: false, demo: true }, booted: false };
+export const state = { user: null, profile: null, plan: null, ai: { enabled: false, demo: true }, config: null, booted: false };
 
 export const today = () => localToday();
 
@@ -45,6 +45,7 @@ export async function refreshMe() {
     state.profile = data.profile;
     state.plan = data.plan;
     state.ai = data.ai || { enabled: false, demo: true };
+    state.config = data.config || state.config;
     if (data.user) setLang(data.user.lang);
   } catch (e) {
     if (e.status === 401) {
