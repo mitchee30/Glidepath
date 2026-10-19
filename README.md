@@ -63,6 +63,13 @@ Use Claude (recommended) or OpenAI. Get a Claude key at platform.claude.com:
 ANTHROPIC_API_KEY=sk-ant-... npm start
 ```
 
+Or keep the key in a `.env` file, which `npm start` loads automatically and git ignores. On a Mac, after clicking "Copy key" in the Claude Console:
+
+```bash
+printf 'ANTHROPIC_API_KEY=%s\n' "$(pbpaste)" > .env
+npm start
+```
+
 Then sign up for your own account; demo accounts always get sample results unless `DEMO_USES_AI=1`. The default model, Claude Haiku 5.5, is the fastest and cheapest Claude model: with photos shrunk to 1024 px, a photo costs roughly a tenth of a US cent.
 
 | Variable | Default | What it does |
@@ -211,6 +218,13 @@ npm start
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-... npm start
+```
+
+也可以把 key 存进 `.env` 文件：`npm start` 会自动读取，git 也会忽略它。Mac 上在 Claude Console 点 “Copy key” 之后运行：
+
+```bash
+printf 'ANTHROPIC_API_KEY=%s\n' "$(pbpaste)" > .env
+npm start
 ```
 
 然后注册一个自己的账号再试；演示账号永远只给示例结果，除非设置 `DEMO_USES_AI=1`。默认模型 Claude Haiku 5.5 是最快最便宜的 Claude 模型，照片缩到 1024 像素后，一张大约 0.1 美分。
